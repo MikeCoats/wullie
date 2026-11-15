@@ -1,0 +1,8 @@
+# SPDX-FileCopyrightText: 2026 Mike Coats <i.am@mikecoats.com>
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# IDEs, etc.
+.idea/
+
+# Build cache, etc.
+/target
