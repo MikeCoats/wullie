@@ -3,11 +3,13 @@
 
 use std::env;
 use std::fs;
+use std::io::{self, BufWriter, ErrorKind, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::{Context, Result, bail};
 use clap::Parser;
+use wullie::project::Project;
 
 /// Wullie - yer local groundskeeper
 #[derive(Parser)]
@@ -30,15 +32,31 @@ fn main() -> ExitCode {
 
     let findings = wullie::find_projects(&root);
 
-    for project in &findings.projects {
-        println!("{}\t{}", project.ecosystem(), project.dir().display());
-    }
-
     for error in &findings.errors {
         eprintln!("Warning: {error}");
     }
 
-    ExitCode::SUCCESS
+    match write_projects(io::stdout().lock(), &findings.projects) {
+        // A closed pipe (e.g. `wullie | head -1`) means the reader has all it wants.
+        Err(error) if error.kind() != ErrorKind::BrokenPipe => {
+            eprintln!("Error: cannot write output: {error}");
+            ExitCode::FAILURE
+        }
+        _ => ExitCode::SUCCESS,
+    }
+}
+
+fn write_projects(output: impl Write, projects: &[Project]) -> io::Result<()> {
+    let mut output = BufWriter::new(output);
+    for project in projects {
+        writeln!(
+            output,
+            "{}\t{}",
+            project.ecosystem(),
+            project.dir().display()
+        )?;
+    }
+    output.flush()
 }
 
 fn start_path(arg: Option<PathBuf>) -> Result<PathBuf> {
@@ -59,9 +77,46 @@ fn start_path(arg: Option<PathBuf>) -> Result<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Cli, start_path};
+    use super::{Cli, start_path, write_projects};
     use clap::CommandFactory;
+    use std::io::{self, ErrorKind, Write};
     use std::{env, fs, path::PathBuf};
+    use wullie::project::{Ecosystem, Project};
+
+    struct ClosedPipe;
+
+    impl Write for ClosedPipe {
+        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+            Err(ErrorKind::BrokenPipe.into())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Err(ErrorKind::BrokenPipe.into())
+        }
+    }
+
+    fn projects() -> Vec<Project> {
+        vec![
+            Project::new(Ecosystem::Rust, PathBuf::from("/a/Cargo.toml")).unwrap(),
+            Project::new(Ecosystem::JavaScript, PathBuf::from("/b/package.json")).unwrap(),
+        ]
+    }
+
+    #[test]
+    fn writes_one_line_per_project() {
+        let mut output = Vec::new();
+        write_projects(&mut output, &projects()).unwrap();
+        assert_eq!(
+            String::from_utf8(output).unwrap(),
+            "rust\t/a\njavascript\t/b\n"
+        );
+    }
+
+    #[test]
+    fn closed_output_returns_broken_pipe_instead_of_panicking() {
+        let error = write_projects(ClosedPipe, &projects()).unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::BrokenPipe);
+    }
 
     #[test]
     fn cli_is_valid() {
