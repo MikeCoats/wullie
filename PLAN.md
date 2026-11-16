@@ -6,7 +6,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 # Wullie - Yer local groundskeeper
 
 - [x] Directory Recursion
-- [ ] Project Finder
+- [x] Project Finder
   - [x] Rust Support
   - [x] Python Support
   - [x] JavaScript Support

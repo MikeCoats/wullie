@@ -43,10 +43,14 @@ impl Ecosystem {
 }
 
 /// A project found on disk, identified by its manifest file.
+///
+/// Projects sort by manifest path, then ecosystem, which is the order Wullie
+/// prints them in.
+/// The field order matters: the derived `Ord` compares fields top to bottom.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Project {
-    ecosystem: Ecosystem,
     manifest: PathBuf,
+    ecosystem: Ecosystem,
 }
 
 impl Project {
@@ -138,6 +142,19 @@ mod tests {
             Path::new("/projects/example/Cargo.toml")
         );
         assert_eq!(project.ecosystem(), Ecosystem::Rust);
+    }
+
+    #[test]
+    fn projects_sort_by_manifest_path() {
+        let root_js =
+            Project::new(Ecosystem::JavaScript, PathBuf::from("/a/package.json")).unwrap();
+        let root_rust = Project::new(Ecosystem::Rust, PathBuf::from("/a/Cargo.toml")).unwrap();
+        let member = Project::new(Ecosystem::Rust, PathBuf::from("/a/b/Cargo.toml")).unwrap();
+        let mut projects = vec![member.clone(), root_js.clone(), root_rust.clone()];
+
+        projects.sort();
+
+        assert_eq!(projects, vec![root_rust, member, root_js]);
     }
 
     #[test]

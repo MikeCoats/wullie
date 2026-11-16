@@ -4,7 +4,6 @@
 pub mod project;
 pub mod walk;
 
-use std::collections::BTreeMap;
 use std::path::Path;
 
 use ignore::Error;
@@ -15,7 +14,7 @@ use crate::project::{Ecosystem, Project};
 /// The result of searching a directory tree for projects.
 #[derive(Debug, Default)]
 pub struct Findings {
-    /// Projects found, sorted by directory then ecosystem, one per `(dir, ecosystem)`.
+    /// Projects found, sorted by manifest path then ecosystem.
     pub projects: Vec<Project>,
     /// Errors met during the walk; the search carries on past them.
     pub errors: Vec<Error>,
@@ -26,7 +25,7 @@ pub fn find_projects(root: &Path) -> Findings {
     let skip_dirs: Vec<&'static str> = Ecosystem::iter()
         .flat_map(|ecosystem| ecosystem.skip_dirs().iter().copied())
         .collect();
-    let mut projects = BTreeMap::new();
+    let mut projects = Vec::new();
     let mut errors = Vec::new();
 
     for entry in walk::files(root, &skip_dirs) {
@@ -41,19 +40,15 @@ pub fn find_projects(root: &Path) -> Findings {
             continue;
         };
 
-        for ecosystem in Ecosystem::iter().filter(|ecosystem| ecosystem.is_manifest(file_name)) {
-            if let Some(project) = Project::new(ecosystem, file.clone()) {
-                projects
-                    .entry((project.dir().to_path_buf(), ecosystem))
-                    .or_insert(project);
-            }
-        }
+        projects.extend(
+            Ecosystem::iter()
+                .filter(|ecosystem| ecosystem.is_manifest(file_name))
+                .filter_map(|ecosystem| Project::new(ecosystem, file.clone())),
+        );
     }
 
-    Findings {
-        projects: projects.into_values().collect(),
-        errors,
-    }
+    projects.sort();
+    Findings { projects, errors }
 }
 
 #[cfg(test)]
