@@ -172,6 +172,33 @@ mod tests {
     }
 
     #[test]
+    fn prunes_directories_globally_across_ecosystems() {
+        let temp = TempDir::new().unwrap();
+        let rust_manifest = temp.path().join("Cargo.toml");
+        let python_manifest = temp.path().join("pyproject.toml");
+        let javascript_manifest = temp.path().join("package.json");
+        create_manifest(&rust_manifest);
+        create_manifest(&python_manifest);
+        create_manifest(&javascript_manifest);
+        create_manifest(&temp.path().join("node_modules/dep/Cargo.toml"));
+        create_manifest(&temp.path().join("target/generated/package.json"));
+        create_manifest(&temp.path().join("site-packages/dep/package.json"));
+        create_manifest(&temp.path().join("bower_components/dep/pyproject.toml"));
+
+        let findings = find_projects(temp.path());
+
+        assert!(findings.errors.is_empty());
+        assert_eq!(
+            findings.projects,
+            vec![
+                rust_project(&rust_manifest),
+                javascript_project(&javascript_manifest),
+                python_project(&python_manifest)
+            ]
+        );
+    }
+
+    #[test]
     fn does_not_find_legacy_python_projects() {
         let temp = TempDir::new().unwrap();
         create_manifest(&temp.path().join("setuppy/setup.py"));

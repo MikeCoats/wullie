@@ -40,6 +40,13 @@ Files that can't hold a comment (such as `Cargo.lock`) need an entry in `REUSE.t
 The library uses `thiserror` for typed errors without exposing dependency-specific error types in its public API.
 The CLI uses `anyhow` to add context to command-line errors.
 
+## Directory pruning
+
+Wullie prunes the union of every ecosystem's build, cache and dependency directory names throughout the tree.
+This is intentional: it avoids traversing large generated or vendored trees and prevents unrelated ecosystem manifests inside them from being reported.
+A directory is pruned by name even when it is not actually used for that ecosystem.
+The starting directory itself is not pruned, so searching from a directory with one of these names still works.
+
 ## Exit codes
 
 The README describes what each exit code means; this section explains why.
