@@ -36,14 +36,27 @@ fn main() -> ExitCode {
         eprintln!("Warning: {error}");
     }
 
-    match write_projects(io::stdout().lock(), &findings.projects) {
-        // A closed pipe (e.g. `wullie | head -1`) means the reader has all it wants.
+    let output = write_projects(io::stdout().lock(), &findings.projects);
+    match &output {
         Err(error) if error.kind() != ErrorKind::BrokenPipe => {
             eprintln!("Error: cannot write output: {error}");
-            ExitCode::FAILURE
         }
-        _ => ExitCode::SUCCESS,
+        _ => {}
     }
+
+    ExitCode::from(exit_status(!findings.errors.is_empty(), &output))
+}
+
+/// Exit status, following ripgrep: 2 if anything went wrong, even if some
+/// results were printed, otherwise 0.
+///
+/// A closed pipe (e.g. `wullie | head -1`) isn't an error: the reader has all
+/// it wants.
+fn exit_status(had_warnings: bool, output: &io::Result<()>) -> u8 {
+    let output_failed = output
+        .as_ref()
+        .is_err_and(|error| error.kind() != ErrorKind::BrokenPipe);
+    if had_warnings || output_failed { 2 } else { 0 }
 }
 
 fn write_projects(output: impl Write, projects: &[Project]) -> io::Result<()> {
@@ -77,7 +90,7 @@ fn start_path(arg: Option<PathBuf>) -> Result<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Cli, start_path, write_projects};
+    use super::{Cli, exit_status, start_path, write_projects};
     use clap::CommandFactory;
     use std::io::{self, ErrorKind, Write};
     use std::{env, fs, path::PathBuf};
@@ -116,6 +129,27 @@ mod tests {
     fn closed_output_returns_broken_pipe_instead_of_panicking() {
         let error = write_projects(ClosedPipe, &projects()).unwrap_err();
         assert_eq!(error.kind(), ErrorKind::BrokenPipe);
+    }
+
+    #[test]
+    fn clean_run_exits_zero() {
+        assert_eq!(exit_status(false, &Ok(())), 0);
+    }
+
+    #[test]
+    fn warnings_exit_two() {
+        assert_eq!(exit_status(true, &Ok(())), 2);
+    }
+
+    #[test]
+    fn broken_pipe_is_not_an_error() {
+        assert_eq!(exit_status(false, &Err(ErrorKind::BrokenPipe.into())), 0);
+        assert_eq!(exit_status(true, &Err(ErrorKind::BrokenPipe.into())), 2);
+    }
+
+    #[test]
+    fn other_output_errors_exit_two() {
+        assert_eq!(exit_status(false, &Err(ErrorKind::Other.into())), 2);
     }
 
     #[test]

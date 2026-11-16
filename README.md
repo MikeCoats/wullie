@@ -19,6 +19,13 @@ Wullie recursively finds:
 A directory with manifests for more than one ecosystem is listed once per ecosystem.
 Results respect ignore files and hidden directories, and skip `target/`, `__pycache__/`, `__pypackages__/`, `site-packages/`, `node_modules/` and `bower_components/` directories.
 
+Problems during the search, such as an unreadable directory or an invalid ignore file, are printed to stderr as warnings, and the search carries on.
+
+Wullie exits with:
+
+- `0` when the search completed without problems, whether or not any projects were found;
+- `2` when anything went wrong, including warnings, an invalid `PATH`, bad arguments or a failure to write the output, even if some projects were listed.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for how to build, test and lint Wullie.

@@ -9,6 +9,8 @@ use ignore::{DirEntry, WalkBuilder};
 /// hidden entries and any directory whose name is in `skip`.
 ///
 /// Walk errors are yielded rather than dropped, so callers can report them.
+/// This includes problems with ignore files, such as an invalid glob, which
+/// `ignore` attaches to the directory entry instead of yielding as an error.
 pub fn files(
     root: &Path,
     skip: &[&'static str],
@@ -29,12 +31,16 @@ pub fn files(
             !skip_dirs.iter().any(|name| entry.file_name() == *name)
         });
 
-    builder.build().filter_map(|entry| match entry {
-        Ok(entry) if entry.file_type().is_some_and(|kind| kind.is_file()) => {
-            Some(Ok(entry.into_path()))
+    builder.build().flat_map(|entry| match entry {
+        Ok(entry) => {
+            let error = entry.error().cloned().map(Err);
+            let file = entry
+                .file_type()
+                .is_some_and(|kind| kind.is_file())
+                .then(|| Ok(entry.into_path()));
+            error.into_iter().chain(file)
         }
-        Ok(_) => None,
-        Err(error) => Some(Err(error)),
+        Err(error) => Some(Err(error)).into_iter().chain(None),
     })
 }
 
@@ -89,6 +95,23 @@ mod tests {
             .unwrap();
 
         assert!(found.is_empty());
+    }
+
+    #[test]
+    fn reports_invalid_ignore_files_and_continues() {
+        let temp = TempDir::new().unwrap();
+        let file = temp.path().join("file.txt");
+        fs::write(temp.path().join(".gitignore"), "{a\n").unwrap();
+        fs::write(&file, "content").unwrap();
+
+        let (found, errors): (Vec<_>, Vec<_>) = files(temp.path(), &[]).partition(Result::is_ok);
+
+        assert_eq!(
+            found.into_iter().map(Result::unwrap).collect::<Vec<_>>(),
+            vec![file]
+        );
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].as_ref().unwrap_err().to_string().contains("{a"));
     }
 
     #[test]
