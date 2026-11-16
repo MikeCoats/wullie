@@ -10,8 +10,13 @@ SPDX-License-Identifier: GPL-3.0-or-later
 ## Usage
 
 Run `wullie [PATH]` to search from `PATH`; if omitted, Wullie uses the current working directory.
-Wullie recursively finds Rust projects by looking for `Cargo.toml` files and prints one tab-separated line per project, for example `rust\t/path/to/project`.
-Results respect ignore files and hidden directories, and skip `target/` directories.
+Wullie recursively finds:
+
+- Rust projects, by their `Cargo.toml` files.
+- Python projects, by their `pyproject.toml` files.
+
+A directory with manifests for more than one ecosystem is listed once per ecosystem.
+Results respect ignore files and hidden directories, and skip `target/`, `__pycache__/`, `__pypackages__/` and `site-packages/` directories.
 
 ## Contributing
 

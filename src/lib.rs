@@ -75,6 +75,10 @@ mod tests {
         Project::new(Ecosystem::Rust, manifest.to_path_buf()).unwrap()
     }
 
+    fn python_project(manifest: &Path) -> Project {
+        Project::new(Ecosystem::Python, manifest.to_path_buf()).unwrap()
+    }
+
     #[test]
     fn finds_a_single_rust_project() {
         let temp = TempDir::new().unwrap();
@@ -118,6 +122,66 @@ mod tests {
 
         assert!(findings.errors.is_empty());
         assert_eq!(findings.projects, vec![rust_project(&root_manifest)]);
+    }
+
+    #[test]
+    fn finds_a_python_project_by_pyproject() {
+        let temp = TempDir::new().unwrap();
+        let manifest = temp.path().join("app/pyproject.toml");
+        create_manifest(&manifest);
+
+        let findings = find_projects(temp.path());
+
+        assert!(findings.errors.is_empty());
+        assert_eq!(findings.projects, vec![python_project(&manifest)]);
+    }
+
+    #[test]
+    fn does_not_find_legacy_python_projects() {
+        let temp = TempDir::new().unwrap();
+        create_manifest(&temp.path().join("setuppy/setup.py"));
+        create_manifest(&temp.path().join("setupcfg/setup.cfg"));
+        create_manifest(&temp.path().join("requirements/requirements.txt"));
+
+        let findings = find_projects(temp.path());
+
+        assert!(findings.errors.is_empty());
+        assert!(findings.projects.is_empty());
+    }
+
+    #[test]
+    fn finds_both_ecosystems_in_one_directory() {
+        let temp = TempDir::new().unwrap();
+        let cargo = temp.path().join("Cargo.toml");
+        let pyproject = temp.path().join("pyproject.toml");
+        create_manifest(&cargo);
+        create_manifest(&pyproject);
+
+        let findings = find_projects(temp.path());
+
+        assert!(findings.errors.is_empty());
+        assert_eq!(
+            findings.projects,
+            vec![rust_project(&cargo), python_project(&pyproject)]
+        );
+    }
+
+    #[test]
+    fn does_not_find_manifests_inside_virtualenvs() {
+        let temp = TempDir::new().unwrap();
+        let root_manifest = temp.path().join("pyproject.toml");
+        create_manifest(&root_manifest);
+        create_manifest(
+            &temp
+                .path()
+                .join("venv/lib/python3.13/site-packages/dep/pyproject.toml"),
+        );
+        create_manifest(&temp.path().join(".venv/lib/dep/pyproject.toml"));
+
+        let findings = find_projects(temp.path());
+
+        assert!(findings.errors.is_empty());
+        assert_eq!(findings.projects, vec![python_project(&root_manifest)]);
     }
 
     #[test]

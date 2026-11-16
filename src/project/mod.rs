@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Mike Coats <i.am@mikecoats.com>
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+mod python;
 mod rust;
 
 use std::ffi::OsStr;
@@ -16,6 +17,7 @@ use strum::{Display, EnumIter};
 #[strum(serialize_all = "lowercase")]
 pub enum Ecosystem {
     Rust,
+    Python,
 }
 
 impl Ecosystem {
@@ -23,6 +25,7 @@ impl Ecosystem {
     pub fn is_manifest(self, file_name: &OsStr) -> bool {
         match self {
             Self::Rust => rust::is_manifest(file_name),
+            Self::Python => python::is_manifest(file_name),
         }
     }
 
@@ -30,6 +33,7 @@ impl Ecosystem {
     pub fn skip_dirs(self) -> &'static [&'static str] {
         match self {
             Self::Rust => rust::SKIP_DIRS,
+            Self::Python => python::SKIP_DIRS,
         }
     }
 }
@@ -81,17 +85,28 @@ mod tests {
     #[test]
     fn ecosystem_displays_as_output_label() {
         assert_eq!(Ecosystem::Rust.to_string(), "rust");
+        assert_eq!(Ecosystem::Python.to_string(), "python");
     }
 
     #[test]
     fn iterates_every_ecosystem() {
-        assert_eq!(Ecosystem::iter().collect::<Vec<_>>(), vec![Ecosystem::Rust]);
+        assert_eq!(
+            Ecosystem::iter().collect::<Vec<_>>(),
+            vec![Ecosystem::Rust, Ecosystem::Python]
+        );
     }
 
     #[test]
     fn rust_dispatches_to_its_module() {
         assert!(Ecosystem::Rust.is_manifest(OsStr::new("Cargo.toml")));
         assert_eq!(Ecosystem::Rust.skip_dirs(), &["target"]);
+    }
+
+    #[test]
+    fn python_dispatches_to_its_module() {
+        assert!(Ecosystem::Python.is_manifest(OsStr::new("pyproject.toml")));
+        assert!(!Ecosystem::Python.is_manifest(OsStr::new("Cargo.toml")));
+        assert!(Ecosystem::Python.skip_dirs().contains(&"site-packages"));
     }
 
     #[test]
