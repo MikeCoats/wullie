@@ -35,6 +35,11 @@ Every new file needs an SPDX header, for example:
 Files that can't hold a comment (such as `Cargo.lock`) need an entry in `REUSE.toml` instead.
 `just reuse` checks this.
 
+## Errors
+
+The library uses `thiserror` for typed errors without exposing dependency-specific error types in its public API.
+The CLI uses `anyhow` to add context to command-line errors.
+
 ## Exit codes
 
 The README describes what each exit code means; this section explains why.

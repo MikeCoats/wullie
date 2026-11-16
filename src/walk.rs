@@ -5,6 +5,11 @@ use std::path::{Path, PathBuf};
 
 use ignore::{DirEntry, WalkBuilder};
 
+/// An error encountered while walking the directory tree.
+#[derive(Debug, thiserror::Error)]
+#[error(transparent)]
+pub struct WalkError(ignore::Error);
+
 /// Recursively lists files under `root`, respecting ignore files and skipping
 /// hidden entries and any directory whose name is in `skip`.
 ///
@@ -14,7 +19,7 @@ use ignore::{DirEntry, WalkBuilder};
 pub fn files(
     root: &Path,
     skip: &[&'static str],
-) -> impl Iterator<Item = Result<PathBuf, ignore::Error>> {
+) -> impl Iterator<Item = Result<PathBuf, WalkError>> {
     let skip_dirs = skip.to_vec();
     let mut builder = WalkBuilder::new(root);
 
@@ -33,19 +38,20 @@ pub fn files(
 
     builder.build().flat_map(|entry| match entry {
         Ok(entry) => {
-            let error = entry.error().cloned().map(Err);
+            let error = entry.error().cloned().map(WalkError).map(Err);
             let file = entry
                 .file_type()
                 .is_some_and(|kind| kind.is_file())
                 .then(|| Ok(entry.into_path()));
             error.into_iter().chain(file)
         }
-        Err(error) => Some(Err(error)).into_iter().chain(None),
+        Err(error) => Some(Err(WalkError(error))).into_iter().chain(None),
     })
 }
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error as StdError;
     use std::fs;
 
     use tempfile::TempDir;
@@ -112,6 +118,19 @@ mod tests {
         );
         assert_eq!(errors.len(), 1);
         assert!(errors[0].as_ref().unwrap_err().to_string().contains("{a"));
+    }
+
+    #[test]
+    fn walk_error_preserves_display_and_source() {
+        let inner = ignore::Error::from(std::io::Error::other("walk failed"));
+        let source = StdError::source(&inner).map(|error| error.to_string());
+        let error = super::WalkError(inner);
+
+        assert_eq!(error.to_string(), "walk failed");
+        assert_eq!(
+            StdError::source(&error).map(|source| source.to_string()),
+            source
+        );
     }
 
     #[test]

@@ -1,12 +1,14 @@
 // SPDX-FileCopyrightText: 2026 Mike Coats <i.am@mikecoats.com>
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+//! Library functionality for finding projects in directory trees.
+
 pub mod project;
 pub mod walk;
+pub use walk::WalkError;
 
 use std::path::Path;
 
-use ignore::Error;
 use strum::IntoEnumIterator;
 
 use crate::project::{Ecosystem, Project};
@@ -17,7 +19,7 @@ pub struct Findings {
     /// Projects found, sorted by manifest path then ecosystem.
     pub projects: Vec<Project>,
     /// Errors met during the walk; the search carries on past them.
-    pub errors: Vec<Error>,
+    pub errors: Vec<WalkError>,
 }
 
 /// Searches `root` recursively for projects of every supported ecosystem.
