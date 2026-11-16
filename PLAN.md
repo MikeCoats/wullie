@@ -5,10 +5,9 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # Wullie - Yer local groundskeeper
 
-- [ ] Directory Recursion
-  https://crates.io/crates/ignore
+- [x] Directory Recursion
 - [ ] Project Finder
-  - [ ] Rust Support
+  - [x] Rust Support
   - [ ] Python Support
 - [ ] Dependency Finder
   - [ ] Rust Support

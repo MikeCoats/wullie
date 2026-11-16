@@ -20,16 +20,25 @@ struct Cli {
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
-    match start_path(cli.path) {
-        Ok(path) => {
-            println!("{}", path.display());
-            ExitCode::SUCCESS
-        }
+    let root = match start_path(cli.path) {
+        Ok(path) => path,
         Err(error) => {
             eprintln!("Error: {error:#}");
-            ExitCode::from(2)
+            return ExitCode::from(2);
         }
+    };
+
+    let findings = wullie::find_projects(&root);
+
+    for project in &findings.projects {
+        println!("{}\t{}", project.ecosystem(), project.dir().display());
     }
+
+    for error in &findings.errors {
+        eprintln!("Warning: {error}");
+    }
+
+    ExitCode::SUCCESS
 }
 
 fn start_path(arg: Option<PathBuf>) -> Result<PathBuf> {

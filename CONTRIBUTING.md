@@ -24,14 +24,21 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 ## Licensing
 
-This repository is [REUSE](https://reuse.software/)-compliant. Every new file needs an SPDX header, for example:
+This repository is [REUSE](https://reuse.software/)-compliant.
+Every new file needs an SPDX header, for example:
 
 ```rust
 // SPDX-FileCopyrightText: 2026 Your Name <you@example.com>
 // SPDX-License-Identifier: GPL-3.0-or-later
 ```
 
-Files that can't hold a comment (such as `Cargo.lock`) need an entry in `REUSE.toml` instead. `just reuse` checks this.
+Files that can't hold a comment (such as `Cargo.lock`) need an entry in `REUSE.toml` instead.
+`just reuse` checks this.
+
+## Writing Markdown
+
+Every sentence should be written on its own line.
+Rendered HTML joins the lines back into paragraphs, and diffs then show exactly which sentence changed.
 
 ## Before submitting
 
