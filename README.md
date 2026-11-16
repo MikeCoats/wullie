@@ -7,6 +7,10 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 > Yer local groundskeeper
 
+## Usage
+
+Run `wullie [PATH]` to start searching from `PATH`; if omitted, Wullie uses the current working directory.
+
 ## Licensing
 
 This repository is REUSE-compliant. The licensing of each file can be divined with `reuse spdx` or `reuse lint`, but here is a best-effort summary:
