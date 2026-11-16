@@ -14,9 +14,10 @@ Wullie recursively finds:
 
 - Rust projects, by their `Cargo.toml` files.
 - Python projects, by their `pyproject.toml` files.
+- JavaScript projects, by their `package.json` files.
 
 A directory with manifests for more than one ecosystem is listed once per ecosystem.
-Results respect ignore files and hidden directories, and skip `target/`, `__pycache__/`, `__pypackages__/` and `site-packages/` directories.
+Results respect ignore files and hidden directories, and skip `target/`, `__pycache__/`, `__pypackages__/`, `site-packages/`, `node_modules/` and `bower_components/` directories.
 
 ## Contributing
 

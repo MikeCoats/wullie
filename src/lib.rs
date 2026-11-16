@@ -79,6 +79,10 @@ mod tests {
         Project::new(Ecosystem::Python, manifest.to_path_buf()).unwrap()
     }
 
+    fn javascript_project(manifest: &Path) -> Project {
+        Project::new(Ecosystem::JavaScript, manifest.to_path_buf()).unwrap()
+    }
+
     #[test]
     fn finds_a_single_rust_project() {
         let temp = TempDir::new().unwrap();
@@ -134,6 +138,40 @@ mod tests {
 
         assert!(findings.errors.is_empty());
         assert_eq!(findings.projects, vec![python_project(&manifest)]);
+    }
+
+    #[test]
+    fn finds_javascript_workspace_root_and_member_in_path_order() {
+        let temp = TempDir::new().unwrap();
+        let root_manifest = temp.path().join("package.json");
+        let member_manifest = temp.path().join("packages/app/package.json");
+        create_manifest(&root_manifest);
+        create_manifest(&member_manifest);
+
+        let findings = find_projects(temp.path());
+
+        assert!(findings.errors.is_empty());
+        assert_eq!(
+            findings.projects,
+            vec![
+                javascript_project(&root_manifest),
+                javascript_project(&member_manifest)
+            ]
+        );
+    }
+
+    #[test]
+    fn does_not_find_manifests_inside_javascript_dependency_directories() {
+        let temp = TempDir::new().unwrap();
+        let root_manifest = temp.path().join("package.json");
+        create_manifest(&root_manifest);
+        create_manifest(&temp.path().join("node_modules/dep/package.json"));
+        create_manifest(&temp.path().join("bower_components/dep/package.json"));
+
+        let findings = find_projects(temp.path());
+
+        assert!(findings.errors.is_empty());
+        assert_eq!(findings.projects, vec![javascript_project(&root_manifest)]);
     }
 
     #[test]

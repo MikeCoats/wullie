@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Mike Coats <i.am@mikecoats.com>
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+mod javascript;
 mod python;
 mod rust;
 
@@ -18,6 +19,7 @@ use strum::{Display, EnumIter};
 pub enum Ecosystem {
     Rust,
     Python,
+    JavaScript,
 }
 
 impl Ecosystem {
@@ -26,6 +28,7 @@ impl Ecosystem {
         match self {
             Self::Rust => rust::is_manifest(file_name),
             Self::Python => python::is_manifest(file_name),
+            Self::JavaScript => javascript::is_manifest(file_name),
         }
     }
 
@@ -34,6 +37,7 @@ impl Ecosystem {
         match self {
             Self::Rust => rust::SKIP_DIRS,
             Self::Python => python::SKIP_DIRS,
+            Self::JavaScript => javascript::SKIP_DIRS,
         }
     }
 }
@@ -86,13 +90,14 @@ mod tests {
     fn ecosystem_displays_as_output_label() {
         assert_eq!(Ecosystem::Rust.to_string(), "rust");
         assert_eq!(Ecosystem::Python.to_string(), "python");
+        assert_eq!(Ecosystem::JavaScript.to_string(), "javascript");
     }
 
     #[test]
     fn iterates_every_ecosystem() {
         assert_eq!(
             Ecosystem::iter().collect::<Vec<_>>(),
-            vec![Ecosystem::Rust, Ecosystem::Python]
+            vec![Ecosystem::Rust, Ecosystem::Python, Ecosystem::JavaScript]
         );
     }
 
@@ -107,6 +112,16 @@ mod tests {
         assert!(Ecosystem::Python.is_manifest(OsStr::new("pyproject.toml")));
         assert!(!Ecosystem::Python.is_manifest(OsStr::new("Cargo.toml")));
         assert!(Ecosystem::Python.skip_dirs().contains(&"site-packages"));
+    }
+
+    #[test]
+    fn javascript_dispatches_to_its_module() {
+        assert!(Ecosystem::JavaScript.is_manifest(OsStr::new("package.json")));
+        assert!(!Ecosystem::JavaScript.is_manifest(OsStr::new("package-lock.json")));
+        assert_eq!(
+            Ecosystem::JavaScript.skip_dirs(),
+            &["node_modules", "bower_components"]
+        );
     }
 
     #[test]

@@ -9,7 +9,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 - [ ] Project Finder
   - [x] Rust Support
   - [x] Python Support
-  - [ ] JavaScript Support
+  - [x] JavaScript Support
 - [ ] Dependency Finder
   - [ ] Rust Support
   - [ ] Python Support
