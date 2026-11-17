@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Mike Coats <i.am@mikecoats.com>
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Library functionality for finding projects in directory trees.
+//! Library functionality for finding projects and their dependency version requirements.
 
 pub mod dependency;
 pub mod project;
@@ -298,6 +298,37 @@ mod tests {
                         name: "member_dep".to_owned(),
                         requirement: "^2".to_owned(),
                     }],
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn find_dependencies_deduplicates_name_and_requirement_pairs() {
+        let temp = TempDir::new().unwrap();
+        let manifest = temp.path().join("Cargo.toml");
+        fs::write(
+            &manifest,
+            "[dependencies]\nshared = \"1\"\n\
+             [dev-dependencies]\nshared = \"1\"\n\
+             shared_v2 = { package = \"shared\", version = \"2\" }\n",
+        )
+        .unwrap();
+
+        let projects = find_projects(temp.path()).projects;
+        let findings = find_dependencies(&projects);
+
+        assert!(findings.errors.is_empty());
+        assert_eq!(
+            findings.projects[0].dependencies,
+            vec![
+                Dependency {
+                    name: "shared".to_owned(),
+                    requirement: "1".to_owned(),
+                },
+                Dependency {
+                    name: "shared".to_owned(),
+                    requirement: "2".to_owned(),
                 },
             ]
         );

@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Mike Coats <i.am@mikecoats.com>
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use std::collections::HashSet;
 use std::ffi::OsStr;
 
 use toml_edit::{DocumentMut, Item};
@@ -22,17 +21,13 @@ const TABLES: &[&str] = &["dependencies", "dev-dependencies", "build-dependencie
 
 /// Parses Cargo dependency requirements from a manifest.
 pub fn dependencies(contents: &str) -> Result<Vec<Dependency>, ParseError> {
-    let document = contents.parse::<DocumentMut>().map_err(ParseError::new)?;
+    let document = contents.parse::<DocumentMut>().map_err(ParseError::toml)?;
     let mut dependencies = Vec::new();
-    let mut seen = HashSet::new();
 
     for table in dependency_tables(&document).filter_map(Item::as_table_like) {
         for (key, item) in table.iter() {
             if let Some(dependency) = parse_dependency(key, item) {
-                let identity = (dependency.name.clone(), dependency.requirement.clone());
-                if seen.insert(identity) {
-                    dependencies.push(dependency);
-                }
+                dependencies.push(dependency);
             }
         }
     }
@@ -204,7 +199,7 @@ mod tests {
     }
 
     #[test]
-    fn deduplicates_same_name_and_requirement_but_keeps_distinct_requirements() {
+    fn returns_duplicate_pairs_for_shared_deduplication() {
         let dependencies = dependencies(
             r#"
                 [dependencies]
@@ -232,8 +227,11 @@ mod tests {
             vec![
                 dependency("shared", "1"),
                 dependency("other", "1"),
+                dependency("shared", "1"),
+                dependency("shared", "2"),
                 dependency("shared", "2"),
                 dependency("shared", "3"),
+                dependency("shared", "1"),
             ]
         );
     }

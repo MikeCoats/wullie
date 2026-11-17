@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Mike Coats <i.am@mikecoats.com>
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+use std::collections::HashSet;
 use std::fs;
 use std::io;
 use std::path::PathBuf;
@@ -46,12 +47,12 @@ pub enum ManifestError {
         #[source]
         source: io::Error,
     },
-    /// A project manifest contains invalid TOML.
+    /// A project manifest could not be parsed.
     #[error("cannot parse {}", path.display())]
     Parse {
         /// The manifest that could not be parsed.
         path: PathBuf,
-        /// The underlying TOML parse error.
+        /// The underlying parse error.
         #[source]
         source: ParseError,
     },
@@ -77,6 +78,7 @@ pub fn find_dependencies(projects: &[Project]) -> DependencyFindings {
                 continue;
             }
         };
+        let dependencies = dedup(dependencies);
 
         if !dependencies.is_empty() {
             findings.projects.push(ProjectDependencies {
@@ -89,13 +91,73 @@ pub fn find_dependencies(projects: &[Project]) -> DependencyFindings {
     findings
 }
 
-/// An error parsing a TOML manifest.
+/// An error parsing a dependency manifest.
 #[derive(Debug, thiserror::Error)]
 #[error(transparent)]
-pub struct ParseError(toml_edit::TomlError);
+pub struct ParseError(ParseErrorKind);
+
+#[derive(Debug, thiserror::Error)]
+enum ParseErrorKind {
+    #[error(transparent)]
+    Toml(toml_edit::TomlError),
+}
 
 impl ParseError {
-    pub(crate) fn new(source: toml_edit::TomlError) -> Self {
-        Self(source)
+    pub(crate) fn toml(source: toml_edit::TomlError) -> Self {
+        Self(ParseErrorKind::Toml(source))
+    }
+}
+
+fn dedup(dependencies: Vec<Dependency>) -> Vec<Dependency> {
+    let mut seen = HashSet::new();
+
+    dependencies
+        .into_iter()
+        .filter(|dependency| seen.insert((dependency.name.clone(), dependency.requirement.clone())))
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::error::Error as StdError;
+
+    use super::{Dependency, ParseError, dedup};
+
+    fn dependency(name: &str, requirement: &str) -> Dependency {
+        Dependency {
+            name: name.to_owned(),
+            requirement: requirement.to_owned(),
+        }
+    }
+
+    #[test]
+    fn deduplicates_name_and_requirement_pairs_preserving_first_occurrence() {
+        assert_eq!(
+            dedup(vec![
+                dependency("serde", "1"),
+                dependency("other", "1"),
+                dependency("serde", "1"),
+                dependency("serde", "2"),
+            ]),
+            vec![
+                dependency("serde", "1"),
+                dependency("other", "1"),
+                dependency("serde", "2"),
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_error_preserves_display_and_source() {
+        let inner = "[broken".parse::<toml_edit::DocumentMut>().unwrap_err();
+        let display = inner.to_string();
+        let source = StdError::source(&inner).map(|error| error.to_string());
+        let error = ParseError::toml(inner);
+
+        assert_eq!(error.to_string(), display);
+        assert_eq!(
+            StdError::source(&error).map(|source| source.to_string()),
+            source
+        );
     }
 }
