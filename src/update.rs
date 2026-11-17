@@ -83,7 +83,7 @@ pub fn find_updates(projects: &[ProjectDependencies], registry: &dyn Registry) -
         let mut updates = Vec::new();
 
         for dependency in &project.dependencies {
-            let key = (ecosystem, dependency.name.to_ascii_lowercase());
+            let key = (ecosystem, ecosystem.normalize_name(&dependency.name));
             if !cache.contains_key(&key) {
                 match registry.releases(ecosystem, &dependency.name) {
                     Ok(releases) => {
@@ -138,6 +138,8 @@ pub struct CompareError(CompareErrorKind);
 enum CompareErrorKind {
     #[error("invalid version requirement")]
     InvalidRequirement(#[source] semver::Error),
+    #[error("invalid version requirement")]
+    InvalidPythonRequirement(#[source] pep440_rs::VersionSpecifiersParseError),
     #[error("no non-yanked release matches the requirement")]
     NoMatchingRelease,
 }
@@ -145,6 +147,12 @@ enum CompareErrorKind {
 impl CompareError {
     pub(crate) fn invalid_requirement(source: semver::Error) -> Self {
         Self(CompareErrorKind::InvalidRequirement(source))
+    }
+
+    pub(crate) fn invalid_python_requirement(
+        source: pep440_rs::VersionSpecifiersParseError,
+    ) -> Self {
+        Self(CompareErrorKind::InvalidPythonRequirement(source))
     }
 
     pub(crate) fn no_matching_release() -> Self {
@@ -166,14 +174,14 @@ mod tests {
 
     #[derive(Default)]
     struct FakeRegistry {
-        releases: HashMap<String, Vec<Release>>,
-        calls: RefCell<HashMap<String, usize>>,
+        releases: HashMap<(Ecosystem, String), Vec<Release>>,
+        calls: RefCell<HashMap<(Ecosystem, String), usize>>,
     }
 
     impl FakeRegistry {
-        fn set_releases(&mut self, name: &str, versions: &[(&str, bool)]) {
+        fn set_releases(&mut self, ecosystem: Ecosystem, name: &str, versions: &[(&str, bool)]) {
             self.releases.insert(
-                name.to_ascii_lowercase(),
+                (ecosystem, ecosystem.normalize_name(name)),
                 versions
                     .iter()
                     .map(|(version, yanked)| Release {
@@ -184,10 +192,10 @@ mod tests {
             );
         }
 
-        fn calls(&self, name: &str) -> usize {
+        fn calls(&self, ecosystem: Ecosystem, name: &str) -> usize {
             self.calls
                 .borrow()
-                .get(&name.to_ascii_lowercase())
+                .get(&(ecosystem, ecosystem.normalize_name(name)))
                 .copied()
                 .unwrap_or_default()
         }
@@ -199,23 +207,38 @@ mod tests {
             ecosystem: Ecosystem,
             name: &str,
         ) -> Result<Vec<Release>, RegistryError> {
-            assert_eq!(ecosystem, Ecosystem::Rust);
-            let name = name.to_ascii_lowercase();
-            *self.calls.borrow_mut().entry(name.clone()).or_default() += 1;
+            let name = ecosystem.normalize_name(name);
+            *self
+                .calls
+                .borrow_mut()
+                .entry((ecosystem, name.clone()))
+                .or_default() += 1;
             self.releases
-                .get(&name)
+                .get(&(ecosystem, name))
                 .cloned()
                 .ok_or_else(RegistryError::not_found)
         }
     }
 
     fn project(path: &str) -> Project {
-        Project::new(Ecosystem::Rust, PathBuf::from(path)).unwrap()
+        project_for(Ecosystem::Rust, path)
+    }
+
+    fn project_for(ecosystem: Ecosystem, path: &str) -> Project {
+        Project::new(ecosystem, PathBuf::from(path)).unwrap()
     }
 
     fn project_dependencies(path: &str, dependencies: &[(&str, &str)]) -> ProjectDependencies {
+        project_dependencies_for(Ecosystem::Rust, path, dependencies)
+    }
+
+    fn project_dependencies_for(
+        ecosystem: Ecosystem,
+        path: &str,
+        dependencies: &[(&str, &str)],
+    ) -> ProjectDependencies {
         ProjectDependencies {
-            project: project(path),
+            project: project_for(ecosystem, path),
             dependencies: dependencies
                 .iter()
                 .map(|(name, requirement)| Dependency {
@@ -240,7 +263,11 @@ mod tests {
     #[test]
     fn fetches_a_crate_shared_by_projects_once_and_preserves_input_order() {
         let mut registry = FakeRegistry::default();
-        registry.set_releases("shared", &[("1.0.0", false), ("1.2.0", false)]);
+        registry.set_releases(
+            Ecosystem::Rust,
+            "shared",
+            &[("1.0.0", false), ("1.2.0", false)],
+        );
         let projects = vec![
             project_dependencies("/z/Cargo.toml", &[("Shared", "1")]),
             project_dependencies("/a/Cargo.toml", &[("shared", "=1.0.0")]),
@@ -249,7 +276,7 @@ mod tests {
         let findings = find_updates(&projects, &registry);
 
         assert!(findings.errors.is_empty());
-        assert_eq!(registry.calls("shared"), 1);
+        assert_eq!(registry.calls(Ecosystem::Rust, "shared"), 1);
         assert_eq!(
             findings.projects,
             vec![
@@ -268,8 +295,16 @@ mod tests {
     #[test]
     fn drops_current_dependencies_and_projects_without_updates() {
         let mut registry = FakeRegistry::default();
-        registry.set_releases("current", &[("1.0.0", false), ("1.2.0", false)]);
-        registry.set_releases("old", &[("1.0.0", false), ("1.2.0", false)]);
+        registry.set_releases(
+            Ecosystem::Rust,
+            "current",
+            &[("1.0.0", false), ("1.2.0", false)],
+        );
+        registry.set_releases(
+            Ecosystem::Rust,
+            "old",
+            &[("1.0.0", false), ("1.2.0", false)],
+        );
         let projects = vec![
             project_dependencies("/empty/Cargo.toml", &[("current", "=1.2.0")]),
             project_dependencies("/mixed/Cargo.toml", &[("current", "=1.2.0"), ("old", "1")]),
@@ -287,14 +322,17 @@ mod tests {
     }
 
     #[test]
-    fn skips_projects_without_a_supported_registry() {
+    fn skips_javascript_projects_without_a_supported_registry() {
         let registry = FakeRegistry::default();
         let projects = vec![ProjectDependencies {
-            project: Project::new(Ecosystem::Python, PathBuf::from("/python/pyproject.toml"))
-                .unwrap(),
+            project: Project::new(
+                Ecosystem::JavaScript,
+                PathBuf::from("/javascript/package.json"),
+            )
+            .unwrap(),
             dependencies: vec![Dependency {
-                name: "requests".to_owned(),
-                requirement: ">=2.31".to_owned(),
+                name: "lodash".to_owned(),
+                requirement: "^4.17".to_owned(),
             }],
         }];
 
@@ -302,13 +340,87 @@ mod tests {
 
         assert!(findings.projects.is_empty());
         assert!(findings.errors.is_empty());
-        assert_eq!(registry.calls("requests"), 0);
+        assert_eq!(registry.calls(Ecosystem::JavaScript, "lodash"), 0);
+    }
+
+    #[test]
+    fn python_name_variants_share_one_registry_lookup() {
+        let mut registry = FakeRegistry::default();
+        registry.set_releases(
+            Ecosystem::Python,
+            "foo-bar",
+            &[("1.0", false), ("1.2", false)],
+        );
+        let projects = vec![
+            project_dependencies_for(
+                Ecosystem::Python,
+                "/first/pyproject.toml",
+                &[("Foo_Bar", ">=1.0")],
+            ),
+            project_dependencies_for(
+                Ecosystem::Python,
+                "/second/pyproject.toml",
+                &[("foo.bar", "")],
+            ),
+        ];
+
+        let findings = find_updates(&projects, &registry);
+
+        assert!(findings.errors.is_empty());
+        assert_eq!(registry.calls(Ecosystem::Python, "FOO--bar"), 1);
+        assert_eq!(
+            findings.projects,
+            vec![
+                ProjectUpdates {
+                    project: project_for(Ecosystem::Python, "/first/pyproject.toml"),
+                    updates: vec![update("Foo_Bar", ">=1.0", "1.0", "1.2")],
+                },
+                ProjectUpdates {
+                    project: project_for(Ecosystem::Python, "/second/pyproject.toml"),
+                    updates: vec![update("foo.bar", "", "1.0", "1.2")],
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn same_package_name_is_looked_up_separately_per_ecosystem() {
+        let mut registry = FakeRegistry::default();
+        registry.set_releases(
+            Ecosystem::Rust,
+            "shared",
+            &[("1.0.0", false), ("1.2.0", false)],
+        );
+        registry.set_releases(
+            Ecosystem::Python,
+            "shared",
+            &[("1.0", false), ("1.2", false)],
+        );
+        let projects = vec![
+            project_dependencies("/rust/Cargo.toml", &[("shared", "*")]),
+            project_dependencies_for(
+                Ecosystem::Python,
+                "/python/pyproject.toml",
+                &[("shared", "")],
+            ),
+        ];
+
+        let findings = find_updates(&projects, &registry);
+
+        assert!(findings.errors.is_empty());
+        assert_eq!(registry.calls(Ecosystem::Rust, "shared"), 1);
+        assert_eq!(registry.calls(Ecosystem::Python, "shared"), 1);
+        assert_eq!(findings.projects.len(), 2);
     }
 
     #[test]
     fn caches_lookup_failures_and_continues_with_other_crates() {
         let mut registry = FakeRegistry::default();
-        registry.set_releases("valid", &[("1.0.0", false), ("1.2.0", false)]);
+        registry.set_releases(
+            Ecosystem::Rust,
+            "valid",
+            &[("1.0.0", false), ("1.2.0", false)],
+        );
         let projects = vec![
             project_dependencies("/first/Cargo.toml", &[("missing", "1"), ("valid", "1")]),
             project_dependencies("/second/Cargo.toml", &[("missing", "2")]),
@@ -316,7 +428,7 @@ mod tests {
 
         let findings = find_updates(&projects, &registry);
 
-        assert_eq!(registry.calls("missing"), 1);
+        assert_eq!(registry.calls(Ecosystem::Rust, "missing"), 1);
         assert_eq!(findings.errors.len(), 1);
         assert!(matches!(
             &findings.errors[0],
@@ -332,7 +444,7 @@ mod tests {
     #[test]
     fn reports_comparison_errors_with_the_dependency_and_requirement() {
         let mut registry = FakeRegistry::default();
-        registry.set_releases("broken", &[("1.0.0", false)]);
+        registry.set_releases(Ecosystem::Rust, "broken", &[("1.0.0", false)]);
         let projects = vec![project_dependencies(
             "/project/Cargo.toml",
             &[("broken", "not-semver")],

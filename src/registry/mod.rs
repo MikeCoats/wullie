@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 mod cache;
+mod python;
 mod rust;
 
 pub use cache::{Cache, CacheError, MAX_AGE};
@@ -27,14 +28,23 @@ pub trait Registry {
     fn releases(&self, ecosystem: Ecosystem, name: &str) -> Result<Vec<Release>, RegistryError>;
 }
 
-/// The base URL of an ecosystem's index.
+/// Builds an ecosystem's full index URL.
 ///
 /// Each ecosystem's index rules live in its own module; these functions
 /// dispatch to them, like the methods on `Ecosystem` do for manifests.
-fn index_url(ecosystem: Ecosystem) -> Result<&'static str, RegistryError> {
+fn url(ecosystem: Ecosystem, path: &str) -> Result<String, RegistryError> {
     match ecosystem {
-        Ecosystem::Rust => Ok(rust::INDEX_URL),
-        Ecosystem::Python | Ecosystem::JavaScript => Err(RegistryError::unsupported(ecosystem)),
+        Ecosystem::Rust => Ok(rust::url(path)),
+        Ecosystem::Python => Ok(python::url(path)),
+        Ecosystem::JavaScript => Err(RegistryError::unsupported(ecosystem)),
+    }
+}
+
+/// Returns the ecosystem-specific request media type, if one is needed.
+fn accept(ecosystem: Ecosystem) -> Option<&'static str> {
+    match ecosystem {
+        Ecosystem::Rust | Ecosystem::JavaScript => None,
+        Ecosystem::Python => Some(python::ACCEPT),
     }
 }
 
@@ -42,7 +52,8 @@ fn index_url(ecosystem: Ecosystem) -> Result<&'static str, RegistryError> {
 fn index_path(ecosystem: Ecosystem, name: &str) -> Result<String, RegistryError> {
     match ecosystem {
         Ecosystem::Rust => Ok(rust::index_path(name)),
-        Ecosystem::Python | Ecosystem::JavaScript => Err(RegistryError::unsupported(ecosystem)),
+        Ecosystem::Python => Ok(python::index_path(name)),
+        Ecosystem::JavaScript => Err(RegistryError::unsupported(ecosystem)),
     }
 }
 
@@ -50,7 +61,8 @@ fn index_path(ecosystem: Ecosystem, name: &str) -> Result<String, RegistryError>
 fn parse_index(ecosystem: Ecosystem, body: &str) -> Result<Vec<Release>, RegistryError> {
     match ecosystem {
         Ecosystem::Rust => rust::parse_index(body),
-        Ecosystem::Python | Ecosystem::JavaScript => Err(RegistryError::unsupported(ecosystem)),
+        Ecosystem::Python => python::parse_index(body),
+        Ecosystem::JavaScript => Err(RegistryError::unsupported(ecosystem)),
     }
 }
 
@@ -95,8 +107,14 @@ impl HttpRegistry {
         }
     }
 
-    fn fetch(&self, url: &str) -> Result<String, RegistryError> {
-        let response = match self.agent.get(url).call() {
+    fn fetch(&self, url: &str, accept: Option<&str>) -> Result<String, RegistryError> {
+        let request = self.agent.get(url);
+        let request = if let Some(accept) = accept {
+            request.header("Accept", accept)
+        } else {
+            request
+        };
+        let response = match request.call() {
             Ok(response) => response,
             Err(ureq::Error::StatusCode(404)) => return Err(RegistryError::not_found()),
             Err(error) => return Err(RegistryError::http(error)),
@@ -110,7 +128,6 @@ impl HttpRegistry {
 
 impl Registry for HttpRegistry {
     fn releases(&self, ecosystem: Ecosystem, name: &str) -> Result<Vec<Release>, RegistryError> {
-        let base = index_url(ecosystem)?;
         let path = index_path(ecosystem, name)?;
         let key = PathBuf::from(ecosystem.to_string()).join(&path);
 
@@ -118,7 +135,7 @@ impl Registry for HttpRegistry {
             return parse_index(ecosystem, &body);
         }
 
-        let body = self.fetch(&format!("{base}/{path}"))?;
+        let body = self.fetch(&url(ecosystem, &path)?, accept(ecosystem))?;
         let releases = parse_index(ecosystem, &body)?;
         self.store(&key, &body);
         Ok(releases)
@@ -168,23 +185,41 @@ mod tests {
 
     use crate::project::Ecosystem;
 
-    use super::{Cache, HttpRegistry, MAX_AGE, Registry, Release, index_path};
+    use super::{Cache, HttpRegistry, MAX_AGE, Registry, Release, accept, index_path, url};
 
     #[test]
     fn rust_dispatches_to_its_index_rules() {
         assert_eq!(index_path(Ecosystem::Rust, "Serde").unwrap(), "se/rd/serde");
+        assert_eq!(
+            url(Ecosystem::Rust, "se/rd/serde").unwrap(),
+            "https://index.crates.io/se/rd/serde"
+        );
+        assert_eq!(accept(Ecosystem::Rust), None);
+    }
+
+    #[test]
+    fn python_dispatches_to_pypi_index_rules() {
+        assert_eq!(index_path(Ecosystem::Python, "Foo_Bar").unwrap(), "foo-bar");
+        assert_eq!(
+            url(Ecosystem::Python, "foo-bar").unwrap(),
+            "https://pypi.org/simple/foo-bar/"
+        );
+        assert_eq!(
+            accept(Ecosystem::Python),
+            Some("application/vnd.pypi.simple.v1+json")
+        );
     }
 
     #[test]
     fn unsupported_ecosystems_have_no_registry() {
         let registry = HttpRegistry::new(None);
-        for ecosystem in [Ecosystem::Python, Ecosystem::JavaScript] {
-            let error = registry.releases(ecosystem, "requests").unwrap_err();
-            assert_eq!(
-                error.to_string(),
-                format!("no registry supports the {ecosystem} ecosystem yet")
-            );
-        }
+        let error = registry
+            .releases(Ecosystem::JavaScript, "requests")
+            .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "no registry supports the javascript ecosystem yet"
+        );
     }
 
     #[test]

@@ -19,6 +19,11 @@ pub fn is_manifest(file_name: &OsStr) -> bool {
     file_name == "Cargo.toml"
 }
 
+/// Normalizes crate names for registry lookups.
+pub fn normalize_name(name: &str) -> String {
+    name.to_ascii_lowercase()
+}
+
 /// Compares a Cargo requirement with published releases.
 pub fn outdated(requirement: &str, releases: &[Release]) -> Result<Option<Outdated>, CompareError> {
     let requirement = VersionReq::parse(requirement).map_err(CompareError::invalid_requirement)?;

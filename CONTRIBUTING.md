@@ -44,19 +44,19 @@ Ecosystems also divide dependencies differently, so the shared dependency model 
 
 ## Version requirements
 
-The Rust Update Finder treats a dependency as outdated when the lowest published, non-yanked release matching its requirement is older than the newest non-yanked release.
+The Update Finder treats a dependency as outdated when the lowest published, non-yanked release matching its requirement is older than the newest non-yanked release.
 It does not treat a range as current just because that range also permits the latest release.
-Pre-releases are ignored unless the requirement names a pre-release.
-Semver ranges are convenient during development, but they can admit untested or vulnerable in-between releases.
-A fully specified exact requirement such as `=1.2.3` is the most robust choice from an SBOM perspective because it identifies one version rather than a range.
+Pre-releases and Python development releases are ignored unless the requirement names a pre-release or development release.
+Semver and PEP 440 ranges are convenient during development, but they can admit untested or vulnerable in-between releases.
+A fully specified exact requirement such as Cargo's `=1.2.3` or Python's `==1.2.3` is the most robust choice from an SBOM perspective because it identifies one version rather than a range.
 
 Across every ecosystem, an unspecified version is out of date.
 Cargo's `*` matches every stable release, so its lowest matching release is the oldest one, and it is reported until it is pinned.
-A bare Python name, stored with an empty requirement, must be treated the same way once Python update lookup exists: it matches every release rather than being skipped or rejected as invalid.
+A bare Python name has an empty requirement and matches every release, so it is reported until pinned.
 
 ## Registry design
 
-`Registry` is a trait because registry clients are an open set, including crates.io now and possible Python or JavaScript registries later.
+`Registry` is a trait because registry clients are an open set, including crates.io and PyPI now and possible JavaScript registries later.
 The trait also lets tests use a fake registry without making network requests.
 `Ecosystem` remains an enum because the supported ecosystems are a closed set, and exhaustive matches ensure each ecosystem handles every pipeline stage.
 

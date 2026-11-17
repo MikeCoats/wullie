@@ -25,11 +25,11 @@ A directory with manifests for more than one ecosystem is found once per ecosyst
 Wullie prints only out-of-date dependencies, one tab-separated line per dependency.
 Each line contains `<ecosystem>\t<project directory>\t<name>\t<requirement>\t<lowest>\t<latest>`.
 `<lowest>` is the lowest published, non-yanked release matching the requirement, and `<latest>` is the newest non-yanked release.
-Pre-releases are excluded unless the requirement names a pre-release.
 A dependency is out of date when `<lowest>` is older than `<latest>`, even if its requirement also permits the newest release.
 A project with no out-of-date dependencies produces no output.
 Rust dependencies that specify `registry` or `registry-index` are omitted, so private packages are not compared with same-named crates.io packages.
 Rust update checks contact the crates.io sparse index at `https://index.crates.io`.
+Python update checks contact the PyPI Simple API at `https://pypi.org/simple`.
 
 Results respect ignore files and hidden directories, and skip `target/`, `__pycache__/`, `__pypackages__/`, `site-packages/`, `node_modules/` and `bower_components/` directories.
 Walk, manifest, lookup and comparison problems are printed to stderr as warnings before update output, and the search carries on.
@@ -41,7 +41,7 @@ Wullie exits with:
 
 ## Lookup cache
 
-Registry lookups are cached in `$XDG_CACHE_HOME/wullie/` (usually `~/.cache/wullie/`), one file per package, such as `rust/se/rd/serde`.
+Registry lookups are cached in `$XDG_CACHE_HOME/wullie/` (usually `~/.cache/wullie/`).
 A cached lookup is reused for 4 hours, so releases published or yanked within that time may not be seen until it expires.
 Run `wullie --refresh [PATH]` to ignore cached lookups, fetch them again and update the cache.
 If the cache can't be read or written, Wullie fetches from the registry instead.

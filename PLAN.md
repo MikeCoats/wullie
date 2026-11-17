@@ -16,7 +16,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
   - [ ] JavaScript Support
 - [ ] Update Finder
   - [x] Rust Support
-  - [ ] Python Support
+  - [x] Python Support
   - [ ] JavaScript Support
 - [ ] Diff Maker
   - [ ] Rust Support

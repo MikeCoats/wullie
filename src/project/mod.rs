@@ -27,6 +27,15 @@ pub enum Ecosystem {
 }
 
 impl Ecosystem {
+    /// Normalizes a package name according to this ecosystem's rules.
+    pub fn normalize_name(self, name: &str) -> String {
+        match self {
+            Self::Rust => rust::normalize_name(name),
+            Self::Python => python::normalize_name(name),
+            Self::JavaScript => javascript::normalize_name(name),
+        }
+    }
+
     /// Returns whether a file with this name marks a project of this ecosystem.
     pub fn is_manifest(self, file_name: &OsStr) -> bool {
         match self {
@@ -56,7 +65,7 @@ impl Ecosystem {
 
     /// Returns whether this ecosystem has a registry supported by the update finder.
     pub fn has_registry(self) -> bool {
-        matches!(self, Self::Rust)
+        matches!(self, Self::Rust | Self::Python)
     }
 
     /// Returns outdated-version details for a requirement and its releases.
@@ -67,7 +76,8 @@ impl Ecosystem {
     ) -> Result<Option<Outdated>, CompareError> {
         match self {
             Self::Rust => rust::outdated(requirement, releases),
-            Self::Python | Self::JavaScript => Ok(None),
+            Self::Python => python::outdated(requirement, releases),
+            Self::JavaScript => Ok(None),
         }
     }
 }
@@ -136,6 +146,14 @@ mod tests {
     }
 
     #[test]
+    fn normalizes_names_per_ecosystem() {
+        assert_eq!(Ecosystem::Rust.normalize_name("Foo_Bar"), "foo_bar");
+        assert_eq!(Ecosystem::Python.normalize_name("Foo_Bar"), "foo-bar");
+        assert_eq!(Ecosystem::Python.normalize_name("FOO--bar"), "foo-bar");
+        assert_eq!(Ecosystem::JavaScript.normalize_name("Foo_Bar"), "Foo_Bar");
+    }
+
+    #[test]
     fn rust_dispatches_to_its_module() {
         assert!(Ecosystem::Rust.is_manifest(OsStr::new("Cargo.toml")));
         assert_eq!(Ecosystem::Rust.skip_dirs(), &["target"]);
@@ -183,9 +201,9 @@ mod tests {
     }
 
     #[test]
-    fn only_rust_has_a_supported_registry() {
+    fn rust_and_python_have_supported_registries() {
         assert!(Ecosystem::Rust.has_registry());
-        assert!(!Ecosystem::Python.has_registry());
+        assert!(Ecosystem::Python.has_registry());
         assert!(!Ecosystem::JavaScript.has_registry());
     }
 

@@ -8,6 +8,11 @@ use super::{RegistryError, Release};
 /// The crates.io sparse index, the endpoint Cargo itself uses.
 pub const INDEX_URL: &str = "https://index.crates.io";
 
+/// Builds the full crates.io sparse-index URL for a package path.
+pub fn url(path: &str) -> String {
+    format!("{INDEX_URL}/{path}")
+}
+
 #[derive(Deserialize)]
 struct IndexEntry {
     vers: String,
@@ -16,7 +21,7 @@ struct IndexEntry {
 
 /// Returns a crate's path within the sparse index, e.g. `se/rd/serde`.
 pub fn index_path(name: &str) -> String {
-    let name = name.to_ascii_lowercase();
+    let name = crate::project::Ecosystem::Rust.normalize_name(name);
     let characters: Vec<_> = name.chars().collect();
     match characters.len() {
         0 => String::new(),

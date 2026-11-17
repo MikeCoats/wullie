@@ -13,6 +13,11 @@ pub fn is_manifest(file_name: &OsStr) -> bool {
     file_name == "package.json"
 }
 
+/// Leaves JavaScript package names unchanged.
+pub fn normalize_name(name: &str) -> String {
+    name.to_owned()
+}
+
 #[cfg(test)]
 mod tests {
     use std::ffi::OsStr;
