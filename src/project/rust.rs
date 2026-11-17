@@ -3,9 +3,12 @@
 
 use std::ffi::OsStr;
 
+use semver::{Version, VersionReq};
 use toml_edit::{DocumentMut, Item};
 
 use crate::dependency::{Dependency, ParseError};
+use crate::registry::Release;
+use crate::update::{CompareError, Outdated};
 
 /// Cargo's build output directory. Every directory with this name is pruned,
 /// including ones in non-Rust trees.
@@ -14,6 +17,43 @@ pub const SKIP_DIRS: &[&str] = &["target"];
 /// Returns whether `file_name` is a Cargo manifest.
 pub fn is_manifest(file_name: &OsStr) -> bool {
     file_name == "Cargo.toml"
+}
+
+/// Compares a Cargo requirement with published releases.
+pub fn outdated(requirement: &str, releases: &[Release]) -> Result<Option<Outdated>, CompareError> {
+    let requirement = VersionReq::parse(requirement).map_err(CompareError::invalid_requirement)?;
+    let includes_prereleases = requirement
+        .comparators
+        .iter()
+        .any(|comparator| !comparator.pre.is_empty());
+    let versions: Vec<_> = releases
+        .iter()
+        .filter(|release| !release.yanked)
+        .filter_map(|release| {
+            Version::parse(&release.version)
+                .ok()
+                .map(|version| (version, release.version.as_str()))
+        })
+        .collect();
+    let lowest = versions
+        .iter()
+        .filter(|(version, _)| requirement.matches(version))
+        .min_by(|(left, _), (right, _)| left.cmp(right))
+        .ok_or_else(CompareError::no_matching_release)?;
+    let latest = versions
+        .iter()
+        .filter(|(version, _)| includes_prereleases || version.pre.is_empty())
+        .max_by(|(left, _), (right, _)| left.cmp(right))
+        .ok_or_else(CompareError::no_matching_release)?;
+
+    if lowest.0 < latest.0 {
+        Ok(Some(Outdated {
+            lowest: lowest.1.to_owned(),
+            latest: latest.1.to_owned(),
+        }))
+    } else {
+        Ok(None)
+    }
 }
 
 /// Dependency table names Cargo reads at the top level and under each `target.<spec>`.
@@ -64,7 +104,10 @@ fn parse_dependency(key: &str, item: &Item) -> Option<Dependency> {
         (key, requirement)
     } else {
         let table = item.as_table_like()?;
-        if table.get("workspace").and_then(Item::as_bool) == Some(true) {
+        if table.get("workspace").and_then(Item::as_bool) == Some(true)
+            || table.get("registry").is_some()
+            || table.get("registry-index").is_some()
+        {
             return None;
         }
         let requirement = table.get("version")?.as_str()?;
@@ -83,13 +126,22 @@ mod tests {
     use std::ffi::OsStr;
 
     use crate::dependency::Dependency;
+    use crate::registry::Release;
+    use crate::update::Outdated;
 
-    use super::{dependencies, is_manifest};
+    use super::{dependencies, is_manifest, outdated};
 
     fn dependency(name: &str, requirement: &str) -> Dependency {
         Dependency {
             name: name.to_owned(),
             requirement: requirement.to_owned(),
+        }
+    }
+
+    fn release(version: &str, yanked: bool) -> Release {
+        Release {
+            version: version.to_owned(),
+            yanked,
         }
     }
 
@@ -237,6 +289,21 @@ mod tests {
     }
 
     #[test]
+    fn skips_dependencies_from_alternative_registries() {
+        let dependencies = dependencies(
+            r#"
+                [dependencies]
+                public = "1"
+                named_registry = { version = "2", registry = "internal" }
+                explicit_registry = { version = "3", registry-index = "https://example.invalid/index" }
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(dependencies, vec![dependency("public", "1")]);
+    }
+
+    #[test]
     fn keeps_git_and_path_dependencies_with_versions_and_skips_unversioned_entries() {
         let dependencies = dependencies(
             r#"
@@ -264,5 +331,165 @@ mod tests {
     #[test]
     fn rejects_invalid_toml() {
         assert!(dependencies("[dependencies\nserde = \"1\"").is_err());
+    }
+
+    #[test]
+    fn reports_lowest_matching_release_and_latest_for_a_range() {
+        assert_eq!(
+            outdated(
+                "1",
+                &[
+                    release("1.0.0", false),
+                    release("1.5.0", false),
+                    release("1.9.0", false)
+                ]
+            )
+            .unwrap(),
+            Some(Outdated {
+                lowest: "1.0.0".to_owned(),
+                latest: "1.9.0".to_owned(),
+            })
+        );
+    }
+
+    #[test]
+    fn does_not_report_an_exact_current_pin() {
+        assert_eq!(
+            outdated(
+                "=1.9.0",
+                &[release("1.5.0", false), release("1.9.0", false)]
+            )
+            .unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn reports_an_exact_old_pin() {
+        assert_eq!(
+            outdated(
+                "=1.5.0",
+                &[release("1.5.0", false), release("1.9.0", false)]
+            )
+            .unwrap(),
+            Some(Outdated {
+                lowest: "1.5.0".to_owned(),
+                latest: "1.9.0".to_owned(),
+            })
+        );
+    }
+
+    #[test]
+    fn ignores_yanked_releases_for_lowest_and_latest() {
+        assert_eq!(
+            outdated(
+                "1",
+                &[
+                    release("1.0.0", true),
+                    release("1.0.1", false),
+                    release("1.5.0", false),
+                    release("2.0.0", true),
+                ]
+            )
+            .unwrap(),
+            Some(Outdated {
+                lowest: "1.0.1".to_owned(),
+                latest: "1.5.0".to_owned(),
+            })
+        );
+    }
+
+    #[test]
+    fn applies_cargo_caret_rules_to_zero_major_versions() {
+        assert_eq!(
+            outdated(
+                "0.4",
+                &[
+                    release("0.4.0", false),
+                    release("0.4.8", false),
+                    release("0.5.0", false)
+                ]
+            )
+            .unwrap(),
+            Some(Outdated {
+                lowest: "0.4.0".to_owned(),
+                latest: "0.5.0".to_owned(),
+            })
+        );
+    }
+
+    #[test]
+    fn uses_the_first_published_release_above_a_greater_than_requirement() {
+        assert_eq!(
+            outdated(
+                ">1.2.3",
+                &[
+                    release("1.2.3", false),
+                    release("1.2.4", false),
+                    release("1.3.0", false),
+                ]
+            )
+            .unwrap(),
+            Some(Outdated {
+                lowest: "1.2.4".to_owned(),
+                latest: "1.3.0".to_owned(),
+            })
+        );
+    }
+
+    #[test]
+    fn stable_requirements_ignore_prereleases_as_latest() {
+        assert_eq!(
+            outdated(
+                "*",
+                &[
+                    release("1.0.0", false),
+                    release("1.9.0", false),
+                    release("2.0.0-rc.1", false),
+                ]
+            )
+            .unwrap(),
+            Some(Outdated {
+                lowest: "1.0.0".to_owned(),
+                latest: "1.9.0".to_owned(),
+            })
+        );
+    }
+
+    #[test]
+    fn requirements_naming_a_prerelease_include_it_in_latest() {
+        assert_eq!(
+            outdated("=2.0.0-rc.1", &[release("2.0.0-rc.1", false)]).unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_requirements() {
+        assert!(outdated("not-semver", &[release("1.0.0", false)]).is_err());
+    }
+
+    #[test]
+    fn reports_no_matching_non_yanked_release() {
+        assert!(outdated("=2.0.0", &[release("1.0.0", false), release("2.0.0", true)]).is_err());
+    }
+
+    #[test]
+    fn skips_unparseable_release_versions() {
+        assert_eq!(
+            outdated(
+                "1",
+                &[
+                    release("not-semver", false),
+                    release("1.0.0", false),
+                    release("1.1.0", false)
+                ]
+            )
+            .unwrap(),
+            Some(Outdated {
+                lowest: "1.0.0".to_owned(),
+                latest: "1.1.0".to_owned(),
+            })
+        );
     }
 }

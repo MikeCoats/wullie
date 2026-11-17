@@ -11,6 +11,8 @@ use std::path::{Path, PathBuf};
 use strum::{Display, EnumIter};
 
 use crate::dependency::{Dependency, ParseError};
+use crate::registry::Release;
+use crate::update::{CompareError, Outdated};
 
 /// A language ecosystem whose projects Wullie can find.
 ///
@@ -48,6 +50,18 @@ impl Ecosystem {
         match self {
             Self::Rust => rust::dependencies(contents),
             Self::Python | Self::JavaScript => Ok(Vec::new()),
+        }
+    }
+
+    /// Returns outdated-version details for a requirement and its releases.
+    pub fn outdated(
+        self,
+        requirement: &str,
+        releases: &[Release],
+    ) -> Result<Option<Outdated>, CompareError> {
+        match self {
+            Self::Rust => rust::outdated(requirement, releases),
+            Self::Python | Self::JavaScript => Ok(None),
         }
     }
 }

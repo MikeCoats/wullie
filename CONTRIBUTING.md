@@ -42,6 +42,20 @@ Wullie reports versioned dependencies as one list without separating normal, dev
 Development dependencies can be an attack path, and optional dependencies may receive less testing while still affecting live deployments.
 Ecosystems also divide dependencies differently, so the shared dependency model does not encode those categories.
 
+## Version requirements
+
+The Rust Update Finder treats a dependency as outdated when the lowest published, non-yanked release matching its requirement is older than the newest non-yanked release.
+It does not treat a range as current just because that range also permits the latest release.
+Pre-releases are ignored unless the requirement names a pre-release.
+Semver ranges are convenient during development, but they can admit untested or vulnerable in-between releases.
+A fully specified exact requirement such as `=1.2.3` is the most robust choice from an SBOM perspective because it identifies one version rather than a range.
+
+## Registry design
+
+`Registry` is a trait because registry clients are an open set, including crates.io now and possible Python or JavaScript registries later.
+The trait also lets tests use a fake registry without making network requests.
+`Ecosystem` remains an enum because the supported ecosystems are a closed set, and exhaustive matches ensure each ecosystem handles every pipeline stage.
+
 ## Errors
 
 The library uses `thiserror` for typed errors without exposing dependency-specific error types in its public API.

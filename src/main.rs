@@ -9,8 +9,9 @@ use std::process::ExitCode;
 
 use anyhow::{Context, Result, bail};
 use clap::Parser;
-use wullie::dependency::ProjectDependencies;
-use wullie::{find_dependencies, find_projects};
+use wullie::registry::CratesIo;
+use wullie::update::ProjectUpdates;
+use wullie::{find_dependencies, find_projects, find_updates};
 
 /// Wullie - yer local groundskeeper
 #[derive(Parser)]
@@ -33,6 +34,7 @@ fn main() -> ExitCode {
 
     let project_findings = find_projects(&root);
     let dependency_findings = find_dependencies(&project_findings.projects);
+    let update_findings = find_updates(&dependency_findings.projects, &CratesIo::new());
 
     for error in &project_findings.errors {
         eprintln!("Warning: {error:#}");
@@ -40,8 +42,11 @@ fn main() -> ExitCode {
     for error in &dependency_findings.errors {
         eprintln!("Warning: {error:#}");
     }
+    for error in &update_findings.errors {
+        eprintln!("Warning: {error:#}");
+    }
 
-    let output = write_dependencies(io::stdout().lock(), &dependency_findings.projects);
+    let output = write_updates(io::stdout().lock(), &update_findings.projects);
     match &output {
         Err(error) if error.kind() != ErrorKind::BrokenPipe => {
             eprintln!("Error: cannot write output: {error}");
@@ -49,8 +54,9 @@ fn main() -> ExitCode {
         _ => {}
     }
 
-    let had_warnings =
-        !project_findings.errors.is_empty() || !dependency_findings.errors.is_empty();
+    let had_warnings = !project_findings.errors.is_empty()
+        || !dependency_findings.errors.is_empty()
+        || !update_findings.errors.is_empty();
     ExitCode::from(exit_status(had_warnings, &output))
 }
 
@@ -66,17 +72,19 @@ fn exit_status(had_warnings: bool, output: &io::Result<()>) -> u8 {
     if had_warnings || output_failed { 2 } else { 0 }
 }
 
-fn write_dependencies(output: impl Write, projects: &[ProjectDependencies]) -> io::Result<()> {
+fn write_updates(output: impl Write, projects: &[ProjectUpdates]) -> io::Result<()> {
     let mut output = BufWriter::new(output);
     for project in projects {
-        for dependency in &project.dependencies {
+        for update in &project.updates {
             writeln!(
                 output,
-                "{}\t{}\t{}\t{}",
+                "{}\t{}\t{}\t{}\t{}\t{}",
                 project.project.ecosystem(),
                 project.project.dir().display(),
-                dependency.name,
-                dependency.requirement
+                update.dependency.name,
+                update.dependency.requirement,
+                update.lowest,
+                update.latest
             )?;
         }
     }
@@ -101,12 +109,13 @@ fn start_path(arg: Option<PathBuf>) -> Result<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Cli, exit_status, start_path, write_dependencies};
+    use super::{Cli, exit_status, start_path, write_updates};
     use clap::CommandFactory;
     use std::io::{self, ErrorKind, Write};
     use std::{env, fs, path::PathBuf};
-    use wullie::dependency::{Dependency, ProjectDependencies};
+    use wullie::dependency::Dependency;
     use wullie::project::{Ecosystem, Project};
+    use wullie::update::{ProjectUpdates, Update};
 
     struct ClosedPipe;
 
@@ -120,35 +129,43 @@ mod tests {
         }
     }
 
-    fn projects() -> Vec<ProjectDependencies> {
-        vec![ProjectDependencies {
+    fn projects() -> Vec<ProjectUpdates> {
+        vec![ProjectUpdates {
             project: Project::new(Ecosystem::Rust, PathBuf::from("/a/Cargo.toml")).unwrap(),
-            dependencies: vec![
-                Dependency {
-                    name: "bar".to_owned(),
-                    requirement: "1".to_owned(),
+            updates: vec![
+                Update {
+                    dependency: Dependency {
+                        name: "bar".to_owned(),
+                        requirement: "1".to_owned(),
+                    },
+                    lowest: "1.0.0".to_owned(),
+                    latest: "1.2.0".to_owned(),
                 },
-                Dependency {
-                    name: "libc".to_owned(),
-                    requirement: "0.2".to_owned(),
+                Update {
+                    dependency: Dependency {
+                        name: "libc".to_owned(),
+                        requirement: "0.2".to_owned(),
+                    },
+                    lowest: "0.2.0".to_owned(),
+                    latest: "0.2.3".to_owned(),
                 },
             ],
         }]
     }
 
     #[test]
-    fn writes_one_line_per_dependency() {
+    fn writes_six_tab_separated_columns_per_outdated_dependency() {
         let mut output = Vec::new();
-        write_dependencies(&mut output, &projects()).unwrap();
+        write_updates(&mut output, &projects()).unwrap();
         assert_eq!(
             String::from_utf8(output).unwrap(),
-            "rust\t/a\tbar\t1\nrust\t/a\tlibc\t0.2\n"
+            "rust\t/a\tbar\t1\t1.0.0\t1.2.0\nrust\t/a\tlibc\t0.2\t0.2.0\t0.2.3\n"
         );
     }
 
     #[test]
     fn closed_output_returns_broken_pipe_instead_of_panicking() {
-        let error = write_dependencies(ClosedPipe, &projects()).unwrap_err();
+        let error = write_updates(ClosedPipe, &projects()).unwrap_err();
         assert_eq!(error.kind(), ErrorKind::BrokenPipe);
     }
 

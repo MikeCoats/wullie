@@ -5,8 +5,11 @@
 
 pub mod dependency;
 pub mod project;
+pub mod registry;
+pub mod update;
 pub mod walk;
 pub use dependency::find_dependencies;
+pub use update::find_updates;
 pub use walk::WalkError;
 
 use std::path::Path;
