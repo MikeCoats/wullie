@@ -38,7 +38,7 @@ Files that can't hold a comment (such as `Cargo.lock`) need an entry in `REUSE.t
 
 ## Dependency output
 
-Wullie reports versioned dependencies as one list without separating normal, development, build, optional, workspace or target-specific dependencies.
+Wullie represents dependency declarations as one list without separating normal, development, build, optional, workspace or target-specific dependencies.
 Development dependencies can be an attack path, and optional dependencies may receive less testing while still affecting live deployments.
 Ecosystems also divide dependencies differently, so the shared dependency model does not encode those categories.
 
@@ -49,6 +49,10 @@ It does not treat a range as current just because that range also permits the la
 Pre-releases are ignored unless the requirement names a pre-release.
 Semver ranges are convenient during development, but they can admit untested or vulnerable in-between releases.
 A fully specified exact requirement such as `=1.2.3` is the most robust choice from an SBOM perspective because it identifies one version rather than a range.
+
+Across every ecosystem, an unspecified version is out of date.
+Cargo's `*` matches every stable release, so its lowest matching release is the oldest one, and it is reported until it is pinned.
+A bare Python name, stored with an empty requirement, must be treated the same way once Python update lookup exists: it matches every release rather than being skipped or rejected as invalid.
 
 ## Registry design
 

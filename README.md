@@ -19,13 +19,11 @@ Wullie recursively searches for supported project manifests:
 - JavaScript projects, by their `package.json` files.
 
 A directory with manifests for more than one ecosystem is found once per ecosystem.
-Dependency update checking is currently implemented for Rust; Python and JavaScript manifests produce no dependency results yet.
 
 ## Output
 
 Wullie prints only out-of-date dependencies, one tab-separated line per dependency.
 Each line contains `<ecosystem>\t<project directory>\t<name>\t<requirement>\t<lowest>\t<latest>`.
-The requirement is printed exactly as written in the manifest.
 `<lowest>` is the lowest published, non-yanked release matching the requirement, and `<latest>` is the newest non-yanked release.
 Pre-releases are excluded unless the requirement names a pre-release.
 A dependency is out of date when `<lowest>` is older than `<latest>`, even if its requirement also permits the newest release.

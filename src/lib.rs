@@ -424,20 +424,41 @@ mod tests {
     }
 
     #[test]
-    fn python_and_javascript_projects_have_no_dependencies_or_errors() {
+    fn parses_python_dependencies_and_reports_invalid_toml() {
         let temp = TempDir::new().unwrap();
-        let python_manifest = temp.path().join("pyproject.toml");
+        let python_manifest = temp.path().join("valid/pyproject.toml");
+        let invalid_python_manifest = temp.path().join("invalid/pyproject.toml");
         let javascript_manifest = temp.path().join("package.json");
-        fs::write(&python_manifest, "invalid toml").unwrap();
+        fs::create_dir_all(python_manifest.parent().unwrap()).unwrap();
+        fs::write(
+            &python_manifest,
+            "[project]\ndependencies = [\"requests>=2.31\"]\n",
+        )
+        .unwrap();
+        fs::create_dir_all(invalid_python_manifest.parent().unwrap()).unwrap();
+        fs::write(&invalid_python_manifest, "[project\ndependencies = [").unwrap();
         fs::write(&javascript_manifest, "invalid json").unwrap();
 
         let findings = find_dependencies(&[
-            python_project(&python_manifest),
+            python_project(&invalid_python_manifest),
             javascript_project(&javascript_manifest),
+            python_project(&python_manifest),
         ]);
 
-        assert!(findings.projects.is_empty());
-        assert!(findings.errors.is_empty());
+        assert!(matches!(
+            findings.errors.as_slice(),
+            [ManifestError::Parse { path, .. }] if path == &invalid_python_manifest
+        ));
+        assert_eq!(
+            findings.projects,
+            vec![ProjectDependencies {
+                project: python_project(&python_manifest),
+                dependencies: vec![Dependency {
+                    name: "requests".to_owned(),
+                    requirement: ">=2.31".to_owned(),
+                }],
+            }]
+        );
     }
 
     #[test]

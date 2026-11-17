@@ -12,7 +12,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
   - [x] JavaScript Support
 - [ ] Dependency Finder
   - [x] Rust Support
-  - [ ] Python Support
+  - [x] Python Support
   - [ ] JavaScript Support
 - [ ] Update Finder
   - [x] Rust Support
@@ -20,6 +20,5 @@ SPDX-License-Identifier: GPL-3.0-or-later
   - [ ] JavaScript Support
 - [ ] Diff Maker
   - [ ] Rust Support
-    https://crates.io/crates/toml_edit
   - [ ] Python Support
   - [ ] JavaScript Support

@@ -49,8 +49,14 @@ impl Ecosystem {
     pub fn dependencies(self, contents: &str) -> Result<Vec<Dependency>, ParseError> {
         match self {
             Self::Rust => rust::dependencies(contents),
-            Self::Python | Self::JavaScript => Ok(Vec::new()),
+            Self::Python => python::dependencies(contents),
+            Self::JavaScript => Ok(Vec::new()),
         }
+    }
+
+    /// Returns whether this ecosystem has a registry supported by the update finder.
+    pub fn has_registry(self) -> bool {
+        matches!(self, Self::Rust)
     }
 
     /// Returns outdated-version details for a requirement and its releases.
@@ -153,19 +159,34 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_ecosystems_have_no_dependencies() {
-        assert!(
+    fn python_dispatches_dependency_parsing_and_toml_errors() {
+        assert_eq!(
             Ecosystem::Python
-                .dependencies("invalid toml")
-                .unwrap()
-                .is_empty()
+                .dependencies("[project]\ndependencies = ['requests>=2']")
+                .unwrap(),
+            vec![crate::dependency::Dependency {
+                name: "requests".to_owned(),
+                requirement: ">=2".to_owned(),
+            }]
         );
+        assert!(Ecosystem::Python.dependencies("invalid toml").is_err());
+    }
+
+    #[test]
+    fn javascript_has_no_dependencies() {
         assert!(
             Ecosystem::JavaScript
                 .dependencies("invalid toml")
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn only_rust_has_a_supported_registry() {
+        assert!(Ecosystem::Rust.has_registry());
+        assert!(!Ecosystem::Python.has_registry());
+        assert!(!Ecosystem::JavaScript.has_registry());
     }
 
     #[test]

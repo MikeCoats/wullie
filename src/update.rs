@@ -77,6 +77,9 @@ pub fn find_updates(projects: &[ProjectDependencies], registry: &dyn Registry) -
 
     for project in projects {
         let ecosystem = project.project.ecosystem();
+        if !ecosystem.has_registry() {
+            continue;
+        }
         let mut updates = Vec::new();
 
         for dependency in &project.dependencies {
@@ -281,6 +284,25 @@ mod tests {
             findings.projects[0].updates,
             vec![update("old", "1", "1.0.0", "1.2.0")]
         );
+    }
+
+    #[test]
+    fn skips_projects_without_a_supported_registry() {
+        let registry = FakeRegistry::default();
+        let projects = vec![ProjectDependencies {
+            project: Project::new(Ecosystem::Python, PathBuf::from("/python/pyproject.toml"))
+                .unwrap(),
+            dependencies: vec![Dependency {
+                name: "requests".to_owned(),
+                requirement: ">=2.31".to_owned(),
+            }],
+        }];
+
+        let findings = find_updates(&projects, &registry);
+
+        assert!(findings.projects.is_empty());
+        assert!(findings.errors.is_empty());
+        assert_eq!(registry.calls("requests"), 0);
     }
 
     #[test]
