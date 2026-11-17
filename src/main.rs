@@ -139,8 +139,9 @@ mod tests {
     use clap::CommandFactory;
     use std::io::{self, ErrorKind, Write};
     use std::{env, fs, path::PathBuf};
+    use tempfile::TempDir;
     use wullie::dependency::Dependency;
-    use wullie::project::{Ecosystem, Project};
+    use wullie::find_projects;
     use wullie::update::{ProjectUpdates, Update};
 
     struct ClosedPipe;
@@ -155,43 +156,47 @@ mod tests {
         }
     }
 
-    fn projects() -> Vec<ProjectUpdates> {
-        vec![ProjectUpdates {
-            project: Project::new(Ecosystem::Rust, PathBuf::from("/a/Cargo.toml")).unwrap(),
+    fn projects() -> (TempDir, Vec<ProjectUpdates>) {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("Cargo.toml"), "").unwrap();
+        let project = find_projects(temp.path()).projects.remove(0);
+        let projects = vec![ProjectUpdates {
+            project,
             updates: vec![
                 Update {
-                    dependency: Dependency {
-                        name: "bar".to_owned(),
-                        requirement: "1".to_owned(),
-                    },
+                    dependency: Dependency::new("bar", "1"),
                     lowest: "1.0.0".to_owned(),
                     latest: "1.2.0".to_owned(),
                 },
                 Update {
-                    dependency: Dependency {
-                        name: "libc".to_owned(),
-                        requirement: "0.2".to_owned(),
-                    },
+                    dependency: Dependency::new("libc", "0.2"),
                     lowest: "0.2.0".to_owned(),
                     latest: "0.2.3".to_owned(),
                 },
             ],
-        }]
+        }];
+        (temp, projects)
     }
 
     #[test]
     fn writes_six_tab_separated_columns_per_outdated_dependency() {
         let mut output = Vec::new();
-        write_updates(&mut output, &projects()).unwrap();
+        let (_temp, projects) = projects();
+        write_updates(&mut output, &projects).unwrap();
         assert_eq!(
             String::from_utf8(output).unwrap(),
-            "rust\t/a\tbar\t1\t1.0.0\t1.2.0\nrust\t/a\tlibc\t0.2\t0.2.0\t0.2.3\n"
+            format!(
+                "rust\t{}\tbar\t1\t1.0.0\t1.2.0\nrust\t{}\tlibc\t0.2\t0.2.0\t0.2.3\n",
+                projects[0].project.dir().display(),
+                projects[0].project.dir().display()
+            )
         );
     }
 
     #[test]
     fn closed_output_returns_broken_pipe_instead_of_panicking() {
-        let error = write_updates(ClosedPipe, &projects()).unwrap_err();
+        let (_temp, projects) = projects();
+        let error = write_updates(ClosedPipe, &projects).unwrap_err();
         assert_eq!(error.kind(), ErrorKind::BrokenPipe);
     }
 

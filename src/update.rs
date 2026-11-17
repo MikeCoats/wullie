@@ -241,20 +241,14 @@ mod tests {
             project: project_for(ecosystem, path),
             dependencies: dependencies
                 .iter()
-                .map(|(name, requirement)| Dependency {
-                    name: (*name).to_owned(),
-                    requirement: (*requirement).to_owned(),
-                })
+                .map(|(name, requirement)| Dependency::new(*name, *requirement))
                 .collect(),
         }
     }
 
     fn update(name: &str, requirement: &str, lowest: &str, latest: &str) -> Update {
         Update {
-            dependency: Dependency {
-                name: name.to_owned(),
-                requirement: requirement.to_owned(),
-            },
+            dependency: Dependency::new(name, requirement),
             lowest: lowest.to_owned(),
             latest: latest.to_owned(),
         }
@@ -325,15 +319,8 @@ mod tests {
     fn skips_javascript_projects_without_a_supported_registry() {
         let registry = FakeRegistry::default();
         let projects = vec![ProjectDependencies {
-            project: Project::new(
-                Ecosystem::JavaScript,
-                PathBuf::from("/javascript/package.json"),
-            )
-            .unwrap(),
-            dependencies: vec![Dependency {
-                name: "lodash".to_owned(),
-                requirement: "^4.17".to_owned(),
-            }],
+            project: project_for(Ecosystem::JavaScript, "/javascript/package.json"),
+            dependencies: vec![Dependency::new("lodash", "^4.17")],
         }];
 
         let findings = find_updates(&projects, &registry);

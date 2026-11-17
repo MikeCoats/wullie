@@ -165,10 +165,7 @@ fn parse_requirement(requirement: &str) -> Option<Dependency> {
         .unwrap_or(version)
         .trim();
 
-    Some(Dependency {
-        name: name.to_owned(),
-        requirement: version.to_owned(),
-    })
+    Some(Dependency::new(name, version))
 }
 
 #[cfg(test)]
@@ -367,22 +364,10 @@ mod tests {
         assert_eq!(
             dependencies(contents).unwrap(),
             vec![
-                Dependency {
-                    name: "requests".to_owned(),
-                    requirement: ">=2.31".to_owned(),
-                },
-                Dependency {
-                    name: "attrs".to_owned(),
-                    requirement: ">=23.1".to_owned(),
-                },
-                Dependency {
-                    name: "pytest".to_owned(),
-                    requirement: ">=7".to_owned(),
-                },
-                Dependency {
-                    name: "ruff".to_owned(),
-                    requirement: ">=0.1".to_owned(),
-                },
+                Dependency::new("requests", ">=2.31"),
+                Dependency::new("attrs", ">=23.1"),
+                Dependency::new("pytest", ">=7"),
+                Dependency::new("ruff", ">=0.1"),
             ]
         );
     }
@@ -391,10 +376,7 @@ mod tests {
     fn parses_pep_508_requirements_and_skips_direct_references() {
         assert_eq!(
             parse_requirement(" package_name[extra]>=1.2 ; python_version < '4' "),
-            Some(Dependency {
-                name: "package_name".to_owned(),
-                requirement: ">=1.2".to_owned(),
-            })
+            Some(Dependency::new("package_name", ">=1.2"))
         );
         assert_eq!(
             parse_requirement("local-package @ https://example.invalid/pkg"),
@@ -406,10 +388,7 @@ mod tests {
     fn bare_names_have_empty_requirements() {
         assert_eq!(
             parse_requirement("bare_name"),
-            Some(Dependency {
-                name: "bare_name".to_owned(),
-                requirement: String::new(),
-            })
+            Some(Dependency::new("bare_name", ""))
         );
     }
 

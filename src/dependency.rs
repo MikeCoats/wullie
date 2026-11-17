@@ -17,6 +17,16 @@ pub struct Dependency {
     pub requirement: String,
 }
 
+impl Dependency {
+    /// Creates a dependency from its package name and manifest requirement.
+    pub fn new(name: impl Into<String>, requirement: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            requirement: requirement.into(),
+        }
+    }
+}
+
 /// A project and the dependencies declared in its manifest.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProjectDependencies {
@@ -100,11 +110,17 @@ pub struct ParseError(ParseErrorKind);
 enum ParseErrorKind {
     #[error(transparent)]
     Toml(toml_edit::TomlError),
+    #[error("dependency `{0}` has no version, path, git, or workspace source")]
+    MissingSource(String),
 }
 
 impl ParseError {
     pub(crate) fn toml(source: toml_edit::TomlError) -> Self {
         Self(ParseErrorKind::Toml(source))
+    }
+
+    pub(crate) fn missing_source(name: &str) -> Self {
+        Self(ParseErrorKind::MissingSource(name.to_owned()))
     }
 }
 
@@ -124,10 +140,7 @@ mod tests {
     use super::{Dependency, ParseError, dedup};
 
     fn dependency(name: &str, requirement: &str) -> Dependency {
-        Dependency {
-            name: name.to_owned(),
-            requirement: requirement.to_owned(),
-        }
+        Dependency::new(name, requirement)
     }
 
     #[test]

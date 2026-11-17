@@ -22,7 +22,7 @@ pub fn normalize_name(name: &str) -> String {
 mod tests {
     use std::ffi::OsStr;
 
-    use super::{SKIP_DIRS, is_manifest};
+    use super::is_manifest;
 
     #[test]
     fn detects_package_json_manifest() {
@@ -34,10 +34,5 @@ mod tests {
         assert!(!is_manifest(OsStr::new("package-lock.json")));
         assert!(!is_manifest(OsStr::new("npm-shrinkwrap.json")));
         assert!(!is_manifest(OsStr::new("Package.json")));
-    }
-
-    #[test]
-    fn skips_dependency_directories() {
-        assert_eq!(SKIP_DIRS, &["node_modules", "bower_components"]);
     }
 }

@@ -71,7 +71,7 @@ pub fn dependencies(contents: &str) -> Result<Vec<Dependency>, ParseError> {
 
     for table in dependency_tables(&document).filter_map(Item::as_table_like) {
         for (key, item) in table.iter() {
-            if let Some(dependency) = parse_dependency(key, item) {
+            if let Some(dependency) = parse_dependency(key, item)? {
                 dependencies.push(dependency);
             }
         }
@@ -104,26 +104,33 @@ fn dependency_tables(document: &DocumentMut) -> impl Iterator<Item = &Item> {
     top_level.chain(targets).chain(workspace)
 }
 
-fn parse_dependency(key: &str, item: &Item) -> Option<Dependency> {
+fn parse_dependency(key: &str, item: &Item) -> Result<Option<Dependency>, ParseError> {
     let (name, requirement) = if let Some(requirement) = item.as_str() {
         (key, requirement)
     } else {
-        let table = item.as_table_like()?;
+        let Some(table) = item.as_table_like() else {
+            return Ok(None);
+        };
         if table.get("workspace").and_then(Item::as_bool) == Some(true)
             || table.get("registry").is_some()
             || table.get("registry-index").is_some()
         {
-            return None;
+            return Ok(None);
         }
-        let requirement = table.get("version")?.as_str()?;
+        let Some(version) = table.get("version") else {
+            if table.get("path").is_some() || table.get("git").is_some() {
+                return Ok(None);
+            }
+            return Err(ParseError::missing_source(key));
+        };
+        let Some(requirement) = version.as_str() else {
+            return Ok(None);
+        };
         let name = table.get("package").and_then(Item::as_str).unwrap_or(key);
         (name, requirement)
     };
 
-    Some(Dependency {
-        name: name.to_owned(),
-        requirement: requirement.to_owned(),
-    })
+    Ok(Some(Dependency::new(name, requirement)))
 }
 
 #[cfg(test)]
@@ -137,10 +144,7 @@ mod tests {
     use super::{dependencies, is_manifest, outdated};
 
     fn dependency(name: &str, requirement: &str) -> Dependency {
-        Dependency {
-            name: name.to_owned(),
-            requirement: requirement.to_owned(),
-        }
+        Dependency::new(name, requirement)
     }
 
     fn release(version: &str, yanked: bool) -> Release {
@@ -306,6 +310,17 @@ mod tests {
         .unwrap();
 
         assert_eq!(dependencies, vec![dependency("public", "1")]);
+    }
+
+    #[test]
+    fn rejects_dependency_tables_without_a_source() {
+        for dependency in ["thiserror = {}", "thiserror = { optional = true }"] {
+            let error = dependencies(&format!("[dependencies]\n{dependency}"))
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("thiserror"));
+            assert!(error.contains("no version, path, git, or workspace source"));
+        }
     }
 
     #[test]

@@ -95,7 +95,7 @@ pub struct Project {
 
 impl Project {
     /// Creates a project from its manifest path, or `None` if the path has no parent directory.
-    pub fn new(ecosystem: Ecosystem, manifest: PathBuf) -> Option<Self> {
+    pub(crate) fn new(ecosystem: Ecosystem, manifest: PathBuf) -> Option<Self> {
         manifest.parent()?;
         Some(Self {
             ecosystem,
@@ -182,10 +182,7 @@ mod tests {
             Ecosystem::Python
                 .dependencies("[project]\ndependencies = ['requests>=2']")
                 .unwrap(),
-            vec![crate::dependency::Dependency {
-                name: "requests".to_owned(),
-                requirement: ">=2".to_owned(),
-            }]
+            vec![crate::dependency::Dependency::new("requests", ">=2")]
         );
         assert!(Ecosystem::Python.dependencies("invalid toml").is_err());
     }

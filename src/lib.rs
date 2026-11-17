@@ -74,16 +74,8 @@ mod tests {
         fs::write(path, "").unwrap();
     }
 
-    fn rust_project(manifest: &Path) -> Project {
-        Project::new(Ecosystem::Rust, manifest.to_path_buf()).unwrap()
-    }
-
-    fn python_project(manifest: &Path) -> Project {
-        Project::new(Ecosystem::Python, manifest.to_path_buf()).unwrap()
-    }
-
-    fn javascript_project(manifest: &Path) -> Project {
-        Project::new(Ecosystem::JavaScript, manifest.to_path_buf()).unwrap()
+    fn project(ecosystem: Ecosystem, manifest: &Path) -> Project {
+        Project::new(ecosystem, manifest.to_path_buf()).unwrap()
     }
 
     #[test]
@@ -95,7 +87,7 @@ mod tests {
         let findings = find_projects(temp.path());
 
         assert!(findings.errors.is_empty());
-        assert_eq!(findings.projects, vec![rust_project(&manifest)]);
+        assert_eq!(findings.projects, vec![project(Ecosystem::Rust, &manifest)]);
         assert_eq!(findings.projects[0].dir(), temp.path());
     }
 
@@ -112,7 +104,10 @@ mod tests {
         assert!(findings.errors.is_empty());
         assert_eq!(
             findings.projects,
-            vec![rust_project(&root_manifest), rust_project(&member_manifest)]
+            vec![
+                project(Ecosystem::Rust, &root_manifest),
+                project(Ecosystem::Rust, &member_manifest)
+            ]
         );
         assert_eq!(findings.projects[1].dir(), temp.path().join("crates/a"));
     }
@@ -128,7 +123,27 @@ mod tests {
         let findings = find_projects(temp.path());
 
         assert!(findings.errors.is_empty());
-        assert_eq!(findings.projects, vec![rust_project(&root_manifest)]);
+        assert_eq!(
+            findings.projects,
+            vec![project(Ecosystem::Rust, &root_manifest)]
+        );
+    }
+
+    #[test]
+    fn respects_gitignore_through_project_finding() {
+        let temp = TempDir::new().unwrap();
+        let visible_manifest = temp.path().join("Cargo.toml");
+        create_manifest(&visible_manifest);
+        fs::write(temp.path().join(".gitignore"), "ignored/\n").unwrap();
+        create_manifest(&temp.path().join("ignored/Cargo.toml"));
+
+        let findings = find_projects(temp.path());
+
+        assert!(findings.errors.is_empty());
+        assert_eq!(
+            findings.projects,
+            vec![project(Ecosystem::Rust, &visible_manifest)]
+        );
     }
 
     #[test]
@@ -140,7 +155,10 @@ mod tests {
         let findings = find_projects(temp.path());
 
         assert!(findings.errors.is_empty());
-        assert_eq!(findings.projects, vec![python_project(&manifest)]);
+        assert_eq!(
+            findings.projects,
+            vec![project(Ecosystem::Python, &manifest)]
+        );
     }
 
     #[test]
@@ -157,8 +175,8 @@ mod tests {
         assert_eq!(
             findings.projects,
             vec![
-                javascript_project(&root_manifest),
-                javascript_project(&member_manifest)
+                project(Ecosystem::JavaScript, &root_manifest),
+                project(Ecosystem::JavaScript, &member_manifest)
             ]
         );
     }
@@ -174,7 +192,10 @@ mod tests {
         let findings = find_projects(temp.path());
 
         assert!(findings.errors.is_empty());
-        assert_eq!(findings.projects, vec![javascript_project(&root_manifest)]);
+        assert_eq!(
+            findings.projects,
+            vec![project(Ecosystem::JavaScript, &root_manifest)]
+        );
     }
 
     #[test]
@@ -197,9 +218,9 @@ mod tests {
         assert_eq!(
             findings.projects,
             vec![
-                rust_project(&rust_manifest),
-                javascript_project(&javascript_manifest),
-                python_project(&python_manifest)
+                project(Ecosystem::Rust, &rust_manifest),
+                project(Ecosystem::JavaScript, &javascript_manifest),
+                project(Ecosystem::Python, &python_manifest)
             ]
         );
     }
@@ -230,7 +251,10 @@ mod tests {
         assert!(findings.errors.is_empty());
         assert_eq!(
             findings.projects,
-            vec![rust_project(&cargo), python_project(&pyproject)]
+            vec![
+                project(Ecosystem::Rust, &cargo),
+                project(Ecosystem::Python, &pyproject)
+            ]
         );
     }
 
@@ -249,7 +273,10 @@ mod tests {
         let findings = find_projects(temp.path());
 
         assert!(findings.errors.is_empty());
-        assert_eq!(findings.projects, vec![python_project(&root_manifest)]);
+        assert_eq!(
+            findings.projects,
+            vec![project(Ecosystem::Python, &root_manifest)]
+        );
     }
 
     #[test]
@@ -289,18 +316,12 @@ mod tests {
             findings.projects,
             vec![
                 ProjectDependencies {
-                    project: rust_project(&root_manifest),
-                    dependencies: vec![Dependency {
-                        name: "shared".to_owned(),
-                        requirement: "1".to_owned(),
-                    }],
+                    project: project(Ecosystem::Rust, &root_manifest),
+                    dependencies: vec![Dependency::new("shared", "1")],
                 },
                 ProjectDependencies {
-                    project: rust_project(&member_manifest),
-                    dependencies: vec![Dependency {
-                        name: "member_dep".to_owned(),
-                        requirement: "^2".to_owned(),
-                    }],
+                    project: project(Ecosystem::Rust, &member_manifest),
+                    dependencies: vec![Dependency::new("member_dep", "^2")],
                 },
             ]
         );
@@ -325,14 +346,8 @@ mod tests {
         assert_eq!(
             findings.projects[0].dependencies,
             vec![
-                Dependency {
-                    name: "shared".to_owned(),
-                    requirement: "1".to_owned(),
-                },
-                Dependency {
-                    name: "shared".to_owned(),
-                    requirement: "2".to_owned(),
-                },
+                Dependency::new("shared", "1"),
+                Dependency::new("shared", "2"),
             ]
         );
     }
@@ -347,8 +362,8 @@ mod tests {
         fs::create_dir_all(valid_manifest.parent().unwrap()).unwrap();
         fs::write(&valid_manifest, "[dependencies]\nserde = \"1\"\n").unwrap();
         let projects = vec![
-            rust_project(&invalid_manifest),
-            rust_project(&valid_manifest),
+            project(Ecosystem::Rust, &invalid_manifest),
+            project(Ecosystem::Rust, &valid_manifest),
         ];
 
         let findings = find_dependencies(&projects);
@@ -361,11 +376,8 @@ mod tests {
         assert_eq!(
             findings.projects,
             vec![ProjectDependencies {
-                project: rust_project(&valid_manifest),
-                dependencies: vec![Dependency {
-                    name: "serde".to_owned(),
-                    requirement: "1".to_owned(),
-                }],
+                project: project(Ecosystem::Rust, &valid_manifest),
+                dependencies: vec![Dependency::new("serde", "1")],
             }]
         );
     }
@@ -403,8 +415,8 @@ mod tests {
         }
 
         let findings = find_dependencies(&[
-            rust_project(&unreadable_manifest),
-            rust_project(&visible_manifest),
+            project(Ecosystem::Rust, &unreadable_manifest),
+            project(Ecosystem::Rust, &visible_manifest),
         ]);
 
         assert!(matches!(
@@ -414,11 +426,8 @@ mod tests {
         assert_eq!(
             findings.projects,
             vec![ProjectDependencies {
-                project: rust_project(&visible_manifest),
-                dependencies: vec![Dependency {
-                    name: "visible_dep".to_owned(),
-                    requirement: "2".to_owned(),
-                }],
+                project: project(Ecosystem::Rust, &visible_manifest),
+                dependencies: vec![Dependency::new("visible_dep", "2")],
             }]
         );
     }
@@ -440,9 +449,9 @@ mod tests {
         fs::write(&javascript_manifest, "invalid json").unwrap();
 
         let findings = find_dependencies(&[
-            python_project(&invalid_python_manifest),
-            javascript_project(&javascript_manifest),
-            python_project(&python_manifest),
+            project(Ecosystem::Python, &invalid_python_manifest),
+            project(Ecosystem::JavaScript, &javascript_manifest),
+            project(Ecosystem::Python, &python_manifest),
         ]);
 
         assert!(matches!(
@@ -452,11 +461,8 @@ mod tests {
         assert_eq!(
             findings.projects,
             vec![ProjectDependencies {
-                project: python_project(&python_manifest),
-                dependencies: vec![Dependency {
-                    name: "requests".to_owned(),
-                    requirement: ">=2.31".to_owned(),
-                }],
+                project: project(Ecosystem::Python, &python_manifest),
+                dependencies: vec![Dependency::new("requests", ">=2.31")],
             }]
         );
     }
@@ -471,7 +477,7 @@ mod tests {
         )
         .unwrap();
 
-        let findings = find_dependencies(&[rust_project(&manifest)]);
+        let findings = find_dependencies(&[project(Ecosystem::Rust, &manifest)]);
 
         assert!(findings.projects.is_empty());
         assert!(findings.errors.is_empty());
@@ -488,8 +494,8 @@ mod tests {
         fs::write(&second_manifest, "[dependencies]\nsecond_dep = \"2\"\n").unwrap();
 
         let findings = find_dependencies(&[
-            rust_project(&second_manifest),
-            rust_project(&first_manifest),
+            project(Ecosystem::Rust, &second_manifest),
+            project(Ecosystem::Rust, &first_manifest),
         ]);
 
         assert!(findings.errors.is_empty());
@@ -533,6 +539,9 @@ mod tests {
         let findings = find_projects(temp.path());
 
         assert!(!findings.errors.is_empty());
-        assert_eq!(findings.projects, vec![rust_project(&visible_manifest)]);
+        assert_eq!(
+            findings.projects,
+            vec![project(Ecosystem::Rust, &visible_manifest)]
+        );
     }
 }
