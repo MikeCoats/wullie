@@ -9,7 +9,9 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 ## Usage
 
-Run `wullie [PATH]` to search from `PATH`; if omitted, Wullie uses the current working directory.
+Run `wullie [PATH]` to list dependency version requirements under `PATH`.
+If omitted, Wullie uses the current working directory.
+
 Wullie recursively finds:
 
 - Rust projects, by their `Cargo.toml` files.
@@ -17,9 +19,15 @@ Wullie recursively finds:
 - JavaScript projects, by their `package.json` files.
 
 A directory with manifests for more than one ecosystem is listed once per ecosystem.
-Results respect ignore files and hidden directories, and skip `target/`, `__pycache__/`, `__pypackages__/`, `site-packages/`, `node_modules/` and `bower_components/` directories.
 
-Problems during the search, such as an unreadable directory or an invalid ignore file, are printed to stderr as warnings, and the search carries on.
+## Output
+
+Wullie prints one tab-separated line per dependency with a version requirement.
+Dependencies are reported as one list rather than being classified by ecosystem-specific categories.
+A project with no dependency version requirements produces no output.
+
+Results respect ignore files and hidden directories, and skip `target/`, `__pycache__/`, `__pypackages__/`, `site-packages/`, `node_modules/` and `bower_components/` directories.
+Walk and manifest problems are printed to stderr as warnings before dependency output, and the search carries on.
 
 Wullie exits with:
 

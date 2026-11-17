@@ -9,7 +9,8 @@ use std::process::ExitCode;
 
 use anyhow::{Context, Result, bail};
 use clap::Parser;
-use wullie::project::Project;
+use wullie::dependency::ProjectDependencies;
+use wullie::{find_dependencies, find_projects};
 
 /// Wullie - yer local groundskeeper
 #[derive(Parser)]
@@ -30,13 +31,17 @@ fn main() -> ExitCode {
         }
     };
 
-    let findings = wullie::find_projects(&root);
+    let project_findings = find_projects(&root);
+    let dependency_findings = find_dependencies(&project_findings.projects);
 
-    for error in &findings.errors {
-        eprintln!("Warning: {error}");
+    for error in &project_findings.errors {
+        eprintln!("Warning: {error:#}");
+    }
+    for error in &dependency_findings.errors {
+        eprintln!("Warning: {error:#}");
     }
 
-    let output = write_projects(io::stdout().lock(), &findings.projects);
+    let output = write_dependencies(io::stdout().lock(), &dependency_findings.projects);
     match &output {
         Err(error) if error.kind() != ErrorKind::BrokenPipe => {
             eprintln!("Error: cannot write output: {error}");
@@ -44,7 +49,9 @@ fn main() -> ExitCode {
         _ => {}
     }
 
-    ExitCode::from(exit_status(!findings.errors.is_empty(), &output))
+    let had_warnings =
+        !project_findings.errors.is_empty() || !dependency_findings.errors.is_empty();
+    ExitCode::from(exit_status(had_warnings, &output))
 }
 
 /// Exit status, following ripgrep: 2 if anything went wrong, even if some
@@ -59,15 +66,19 @@ fn exit_status(had_warnings: bool, output: &io::Result<()>) -> u8 {
     if had_warnings || output_failed { 2 } else { 0 }
 }
 
-fn write_projects(output: impl Write, projects: &[Project]) -> io::Result<()> {
+fn write_dependencies(output: impl Write, projects: &[ProjectDependencies]) -> io::Result<()> {
     let mut output = BufWriter::new(output);
     for project in projects {
-        writeln!(
-            output,
-            "{}\t{}",
-            project.ecosystem(),
-            project.dir().display()
-        )?;
+        for dependency in &project.dependencies {
+            writeln!(
+                output,
+                "{}\t{}\t{}\t{}",
+                project.project.ecosystem(),
+                project.project.dir().display(),
+                dependency.name,
+                dependency.requirement
+            )?;
+        }
     }
     output.flush()
 }
@@ -90,10 +101,11 @@ fn start_path(arg: Option<PathBuf>) -> Result<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Cli, exit_status, start_path, write_projects};
+    use super::{Cli, exit_status, start_path, write_dependencies};
     use clap::CommandFactory;
     use std::io::{self, ErrorKind, Write};
     use std::{env, fs, path::PathBuf};
+    use wullie::dependency::{Dependency, ProjectDependencies};
     use wullie::project::{Ecosystem, Project};
 
     struct ClosedPipe;
@@ -108,26 +120,35 @@ mod tests {
         }
     }
 
-    fn projects() -> Vec<Project> {
-        vec![
-            Project::new(Ecosystem::Rust, PathBuf::from("/a/Cargo.toml")).unwrap(),
-            Project::new(Ecosystem::JavaScript, PathBuf::from("/b/package.json")).unwrap(),
-        ]
+    fn projects() -> Vec<ProjectDependencies> {
+        vec![ProjectDependencies {
+            project: Project::new(Ecosystem::Rust, PathBuf::from("/a/Cargo.toml")).unwrap(),
+            dependencies: vec![
+                Dependency {
+                    name: "bar".to_owned(),
+                    requirement: "1".to_owned(),
+                },
+                Dependency {
+                    name: "libc".to_owned(),
+                    requirement: "0.2".to_owned(),
+                },
+            ],
+        }]
     }
 
     #[test]
-    fn writes_one_line_per_project() {
+    fn writes_one_line_per_dependency() {
         let mut output = Vec::new();
-        write_projects(&mut output, &projects()).unwrap();
+        write_dependencies(&mut output, &projects()).unwrap();
         assert_eq!(
             String::from_utf8(output).unwrap(),
-            "rust\t/a\njavascript\t/b\n"
+            "rust\t/a\tbar\t1\nrust\t/a\tlibc\t0.2\n"
         );
     }
 
     #[test]
     fn closed_output_returns_broken_pipe_instead_of_panicking() {
-        let error = write_projects(ClosedPipe, &projects()).unwrap_err();
+        let error = write_dependencies(ClosedPipe, &projects()).unwrap_err();
         assert_eq!(error.kind(), ErrorKind::BrokenPipe);
     }
 

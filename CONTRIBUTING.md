@@ -36,6 +36,12 @@ Every new file needs an SPDX header, for example:
 Files that can't hold a comment (such as `Cargo.lock`) need an entry in `REUSE.toml` instead.
 `just reuse` checks this.
 
+## Dependency output
+
+Wullie reports versioned dependencies as one list without separating normal, development, build, optional, workspace or target-specific dependencies.
+Development dependencies can be an attack path, and optional dependencies may receive less testing while still affecting live deployments.
+Ecosystems also divide dependencies differently, so the shared dependency model does not encode those categories.
+
 ## Errors
 
 The library uses `thiserror` for typed errors without exposing dependency-specific error types in its public API.

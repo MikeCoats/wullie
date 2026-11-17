@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 
 use strum::{Display, EnumIter};
 
+use crate::dependency::{Dependency, ParseError};
+
 /// A language ecosystem whose projects Wullie can find.
 ///
 /// Each ecosystem's rules live in its own module; the methods here dispatch to
@@ -38,6 +40,14 @@ impl Ecosystem {
             Self::Rust => rust::SKIP_DIRS,
             Self::Python => python::SKIP_DIRS,
             Self::JavaScript => javascript::SKIP_DIRS,
+        }
+    }
+
+    /// Parses dependencies from a manifest's contents.
+    pub fn dependencies(self, contents: &str) -> Result<Vec<Dependency>, ParseError> {
+        match self {
+            Self::Rust => rust::dependencies(contents),
+            Self::Python | Self::JavaScript => Ok(Vec::new()),
         }
     }
 }
@@ -125,6 +135,22 @@ mod tests {
         assert_eq!(
             Ecosystem::JavaScript.skip_dirs(),
             &["node_modules", "bower_components"]
+        );
+    }
+
+    #[test]
+    fn unsupported_ecosystems_have_no_dependencies() {
+        assert!(
+            Ecosystem::Python
+                .dependencies("invalid toml")
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            Ecosystem::JavaScript
+                .dependencies("invalid toml")
+                .unwrap()
+                .is_empty()
         );
     }
 

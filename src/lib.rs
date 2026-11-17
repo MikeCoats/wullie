@@ -3,8 +3,10 @@
 
 //! Library functionality for finding projects in directory trees.
 
+pub mod dependency;
 pub mod project;
 pub mod walk;
+pub use dependency::find_dependencies;
 pub use walk::WalkError;
 
 use std::path::Path;
@@ -60,8 +62,9 @@ mod tests {
 
     use tempfile::TempDir;
 
-    use crate::find_projects;
+    use crate::dependency::{Dependency, ManifestError, ProjectDependencies};
     use crate::project::{Ecosystem, Project};
+    use crate::{find_dependencies, find_projects};
 
     fn create_manifest(path: &Path) {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -254,6 +257,195 @@ mod tests {
 
         assert!(findings.errors.is_empty());
         assert!(findings.projects.is_empty());
+    }
+
+    #[test]
+    fn finds_dependencies_for_workspace_root_and_member_in_path_order() {
+        let temp = TempDir::new().unwrap();
+        let root_manifest = temp.path().join("Cargo.toml");
+        let member_manifest = temp.path().join("crates/member/Cargo.toml");
+        fs::write(
+            &root_manifest,
+            "[workspace]\nmembers = [\"crates/member\"]\n\
+             [workspace.dependencies]\nshared = \"1\"\n",
+        )
+        .unwrap();
+        fs::create_dir_all(member_manifest.parent().unwrap()).unwrap();
+        fs::write(
+            &member_manifest,
+            "[package]\nname = \"member\"\nversion = \"0.1.0\"\n\
+             [dependencies]\nmember_dep = \"^2\"\nshared = { workspace = true }\n",
+        )
+        .unwrap();
+        let projects = find_projects(temp.path()).projects;
+
+        let findings = find_dependencies(&projects);
+
+        assert!(findings.errors.is_empty());
+        assert_eq!(
+            findings.projects,
+            vec![
+                ProjectDependencies {
+                    project: rust_project(&root_manifest),
+                    dependencies: vec![Dependency {
+                        name: "shared".to_owned(),
+                        requirement: "1".to_owned(),
+                    }],
+                },
+                ProjectDependencies {
+                    project: rust_project(&member_manifest),
+                    dependencies: vec![Dependency {
+                        name: "member_dep".to_owned(),
+                        requirement: "^2".to_owned(),
+                    }],
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn reports_invalid_manifest_and_continues_to_valid_project() {
+        let temp = TempDir::new().unwrap();
+        let invalid_manifest = temp.path().join("invalid/Cargo.toml");
+        let valid_manifest = temp.path().join("valid/Cargo.toml");
+        fs::create_dir_all(invalid_manifest.parent().unwrap()).unwrap();
+        fs::write(&invalid_manifest, "[dependencies\nserde = \"1\"").unwrap();
+        fs::create_dir_all(valid_manifest.parent().unwrap()).unwrap();
+        fs::write(&valid_manifest, "[dependencies]\nserde = \"1\"\n").unwrap();
+        let projects = vec![
+            rust_project(&invalid_manifest),
+            rust_project(&valid_manifest),
+        ];
+
+        let findings = find_dependencies(&projects);
+
+        assert_eq!(findings.errors.len(), 1);
+        assert!(matches!(
+            &findings.errors[0],
+            ManifestError::Parse { path, .. } if path == &invalid_manifest
+        ));
+        assert_eq!(
+            findings.projects,
+            vec![ProjectDependencies {
+                project: rust_project(&valid_manifest),
+                dependencies: vec![Dependency {
+                    name: "serde".to_owned(),
+                    requirement: "1".to_owned(),
+                }],
+            }]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn reports_unreadable_manifest_and_continues() {
+        use std::os::unix::fs::PermissionsExt;
+
+        /// Restores manifest permissions on drop, so the temporary directory remains removable.
+        struct RestorePermissions<'a>(&'a Path);
+
+        impl Drop for RestorePermissions<'_> {
+            fn drop(&mut self) {
+                let _ = fs::set_permissions(self.0, fs::Permissions::from_mode(0o600));
+            }
+        }
+
+        let temp = TempDir::new().unwrap();
+        let unreadable_manifest = temp.path().join("unreadable/Cargo.toml");
+        let visible_manifest = temp.path().join("visible/Cargo.toml");
+        fs::create_dir_all(unreadable_manifest.parent().unwrap()).unwrap();
+        fs::write(
+            &unreadable_manifest,
+            "[dependencies]\nprivate_dep = \"1\"\n",
+        )
+        .unwrap();
+        fs::create_dir_all(visible_manifest.parent().unwrap()).unwrap();
+        fs::write(&visible_manifest, "[dependencies]\nvisible_dep = \"2\"\n").unwrap();
+        fs::set_permissions(&unreadable_manifest, fs::Permissions::from_mode(0o0)).unwrap();
+        let _restore = RestorePermissions(&unreadable_manifest);
+
+        if fs::read_to_string(&unreadable_manifest).is_ok() {
+            return;
+        }
+
+        let findings = find_dependencies(&[
+            rust_project(&unreadable_manifest),
+            rust_project(&visible_manifest),
+        ]);
+
+        assert!(matches!(
+            findings.errors.as_slice(),
+            [ManifestError::Read { path, .. }] if path == &unreadable_manifest
+        ));
+        assert_eq!(
+            findings.projects,
+            vec![ProjectDependencies {
+                project: rust_project(&visible_manifest),
+                dependencies: vec![Dependency {
+                    name: "visible_dep".to_owned(),
+                    requirement: "2".to_owned(),
+                }],
+            }]
+        );
+    }
+
+    #[test]
+    fn python_and_javascript_projects_have_no_dependencies_or_errors() {
+        let temp = TempDir::new().unwrap();
+        let python_manifest = temp.path().join("pyproject.toml");
+        let javascript_manifest = temp.path().join("package.json");
+        fs::write(&python_manifest, "invalid toml").unwrap();
+        fs::write(&javascript_manifest, "invalid json").unwrap();
+
+        let findings = find_dependencies(&[
+            python_project(&python_manifest),
+            javascript_project(&javascript_manifest),
+        ]);
+
+        assert!(findings.projects.is_empty());
+        assert!(findings.errors.is_empty());
+    }
+
+    #[test]
+    fn drops_projects_without_versioned_dependencies() {
+        let temp = TempDir::new().unwrap();
+        let manifest = temp.path().join("Cargo.toml");
+        fs::write(
+            &manifest,
+            "[package]\nname = \"empty\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+
+        let findings = find_dependencies(&[rust_project(&manifest)]);
+
+        assert!(findings.projects.is_empty());
+        assert!(findings.errors.is_empty());
+    }
+
+    #[test]
+    fn keeps_the_input_order_of_projects_with_dependencies() {
+        let temp = TempDir::new().unwrap();
+        let first_manifest = temp.path().join("first/Cargo.toml");
+        let second_manifest = temp.path().join("second/Cargo.toml");
+        fs::create_dir_all(first_manifest.parent().unwrap()).unwrap();
+        fs::write(&first_manifest, "[dependencies]\nfirst_dep = \"1\"\n").unwrap();
+        fs::create_dir_all(second_manifest.parent().unwrap()).unwrap();
+        fs::write(&second_manifest, "[dependencies]\nsecond_dep = \"2\"\n").unwrap();
+
+        let findings = find_dependencies(&[
+            rust_project(&second_manifest),
+            rust_project(&first_manifest),
+        ]);
+
+        assert!(findings.errors.is_empty());
+        assert_eq!(
+            findings
+                .projects
+                .iter()
+                .map(|project| project.project.manifest().to_path_buf())
+                .collect::<Vec<_>>(),
+            vec![second_manifest, first_manifest]
+        );
     }
 
     #[cfg(unix)]
