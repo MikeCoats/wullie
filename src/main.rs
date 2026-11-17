@@ -6,10 +6,11 @@ use std::fs;
 use std::io::{self, BufWriter, ErrorKind, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use clap::Parser;
-use wullie::registry::CratesIo;
+use wullie::registry::{Cache, HttpRegistry, MAX_AGE};
 use wullie::update::ProjectUpdates;
 use wullie::{find_dependencies, find_projects, find_updates};
 
@@ -19,6 +20,10 @@ use wullie::{find_dependencies, find_projects, find_updates};
 struct Cli {
     /// Directory to start searching from (defaults to the current directory)
     path: Option<PathBuf>,
+
+    /// Ignore cached registry lookups and fetch them again
+    #[arg(long)]
+    refresh: bool,
 }
 
 fn main() -> ExitCode {
@@ -34,7 +39,9 @@ fn main() -> ExitCode {
 
     let project_findings = find_projects(&root);
     let dependency_findings = find_dependencies(&project_findings.projects);
-    let update_findings = find_updates(&dependency_findings.projects, &CratesIo::new());
+    let (cache, cache_unavailable) = cache(cli.refresh);
+    let registry = HttpRegistry::new(cache);
+    let update_findings = find_updates(&dependency_findings.projects, &registry);
 
     for error in &project_findings.errors {
         eprintln!("Warning: {error:#}");
@@ -44,6 +51,14 @@ fn main() -> ExitCode {
     }
     for error in &update_findings.errors {
         eprintln!("Warning: {error:#}");
+    }
+    if let Some(error) = registry.cache_write_error() {
+        eprintln!("Warning: {error:#}");
+    }
+    if cache_unavailable {
+        eprintln!(
+            "Warning: cannot determine user cache directory; registry lookups will not be cached"
+        );
     }
 
     let output = write_updates(io::stdout().lock(), &update_findings.projects);
@@ -58,6 +73,17 @@ fn main() -> ExitCode {
         || !dependency_findings.errors.is_empty()
         || !update_findings.errors.is_empty();
     ExitCode::from(exit_status(had_warnings, &output))
+}
+
+/// The user's registry cache; `--refresh` makes every entry stale, so lookups
+/// are fetched again and rewritten.
+/// Without a cache directory, lookups simply aren't cached.
+fn cache(refresh: bool) -> (Option<Cache>, bool) {
+    let Some(dir) = Cache::user_dir() else {
+        return (None, true);
+    };
+    let max_age = if refresh { Duration::ZERO } else { MAX_AGE };
+    (Some(Cache::new(dir, max_age)), false)
 }
 
 /// Exit status, following ripgrep: 2 if anything went wrong, even if some

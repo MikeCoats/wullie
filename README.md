@@ -38,8 +38,16 @@ Walk, manifest, lookup and comparison problems are printed to stderr as warnings
 
 Wullie exits with:
 
-- `0` when the search completed without problems, whether or not any projects were found;
-- `2` when anything went wrong, including warnings, an invalid `PATH`, bad arguments or a failure to write the output, even if some projects were listed.
+- `0` when the search results are complete, whether or not any projects were found; cache warnings do not change this;
+- `2` when searching or writing output encountered a problem, including incomplete-result warnings, an invalid `PATH`, bad arguments or a failure to write the output.
+
+## Lookup cache
+
+Registry lookups are cached in `$XDG_CACHE_HOME/wullie/` (usually `~/.cache/wullie/`), one file per package, such as `rust/se/rd/serde`.
+A cached lookup is reused for 4 hours, so releases published or yanked within that time may not be seen until it expires.
+Run `wullie --refresh [PATH]` to ignore cached lookups, fetch them again and update the cache.
+If the cache can't be read or written, Wullie fetches from the registry instead.
+If Wullie cannot determine a user cache directory, it warns that lookups will not be cached, but still completes normally.
 
 ## Contributing
 

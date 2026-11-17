@@ -56,6 +56,12 @@ A fully specified exact requirement such as `=1.2.3` is the most robust choice f
 The trait also lets tests use a fake registry without making network requests.
 `Ecosystem` remains an enum because the supported ecosystems are a closed set, and exhaustive matches ensure each ecosystem handles every pipeline stage.
 
+### Lookup cache
+
+Raw index bodies are stored under `$XDG_CACHE_HOME/wullie/<ecosystem>/<index path>`.
+An entry is fresh for a fixed 4 hours from its file modification time, and `--refresh` treats every entry as stale.
+We deliberately don't revalidate with `ETag` or `Last-Modified`: a fixed lifetime is simpler and `--refresh` covers the times freshness matters.
+
 ## Errors
 
 The library uses `thiserror` for typed errors without exposing dependency-specific error types in its public API.
@@ -75,13 +81,9 @@ The logic lives in `exit_status` in `src/main.rs`.
 
 - **We follow `ripgrep`.**
   It is a well-known search tool with the same shape as Wullie: walk a tree, print results, warn about problems along the way.
-  Matching its conventions means scripts written for one behave sensibly with the other.
 - **Warnings exit with `2`, even when projects were listed.**
   A warning means part of the tree couldn't be searched, so the list may be incomplete.
   A script should be able to tell a complete answer from a partial one without parsing stderr.
-- **Every kind of failure uses `2`.**
-  `clap` already exits with `2` for bad arguments, so invalid paths, warnings and output errors use the same code.
-  Callers only need to check for one non-zero value.
 - **Finding nothing exits with `0`.**
   This is where we differ from `ripgrep`, which exits with `1` when nothing matches.
   An empty tree is a valid, complete answer for Wullie, not a failed search.
