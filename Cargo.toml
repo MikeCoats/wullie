@@ -7,7 +7,7 @@ version = "0.1.0"
 description = "A local project dependency and update finder"
 license = "GPL-3.0-or-later"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 
 [dependencies]
 anyhow = "1.0.104"

@@ -6,7 +6,7 @@ default:
     @just --list
 
 # Run every check that CI runs
-ci: fmt lint test reuse
+ci: fmt lint test msrv reuse
 
 # Check formatting
 fmt:
@@ -19,6 +19,10 @@ lint:
 # Run the test suite
 test:
     cargo test
+
+# Check the build with the minimum supported Rust version
+msrv:
+    cargo +1.88 check --all-targets
 
 # Check REUSE licensing compliance
 reuse:

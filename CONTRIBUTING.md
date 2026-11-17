@@ -7,7 +7,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 ## Prerequisites
 
-- [Rust](https://rustup.rs/) 1.85 or newer
+- [Rust](https://rustup.rs/) 1.88 or newer
 - [`just`](https://just.systems/): `cargo install just`
 - [`reuse`](https://reuse.software/): e.g. `pipx install reuse`
 
@@ -20,6 +20,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 | `just fmt`   | Check formatting with `cargo fmt --check`            |
 | `just lint`  | Lint with clippy, treating warnings as errors        |
 | `just test`  | Run the test suite                                   |
+| `just msrv`  | Check the build with Rust 1.88, the minimum version  |
 | `just reuse` | Check REUSE licensing compliance with `reuse lint`   |
 
 ## Licensing
