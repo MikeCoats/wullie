@@ -54,6 +54,19 @@ Across every ecosystem, an unspecified version is out of date.
 Cargo's `*` matches every stable release, so its lowest matching release is the oldest one, and it is reported until it is pinned.
 A bare Python name has an empty requirement and matches every release, so it is reported until pinned.
 
+## Diff Maker
+
+The Diff Maker prints one combined unified diff to stdout.
+The paths in the diff are relative to the starting `PATH`.
+Run `wullie [PATH] > updates.patch` to review the patch, or `wullie [PATH] | git apply` to apply it from `PATH`.
+The diff already shows every pinned change, so stderr carries only warnings and errors.
+A run that has nothing to report is silent, which suits cron jobs and pipelines such as `wullie | git apply`.
+If writing to stderr fails, Wullie ignores that failure because there is nowhere else to report it.
+
+The Diff Maker replaces every range (caret, tilde, wildcard, comparison or bare name) with an exact pin of the newest non-yanked release: `=x.y.z` for Cargo, `==x.y.z` for Python.
+It pins to the newest release even when that crosses a major version, and drops other bounds and exclusions such as `<3` or `!=2.1.0`.
+The Diff Maker never updates lock files, so regenerate `Cargo.lock`, `uv.lock` or the equivalent after applying a diff.
+
 ## Registry design
 
 `Registry` is a trait because registry clients are an open set, including crates.io and PyPI now and possible JavaScript registries later.

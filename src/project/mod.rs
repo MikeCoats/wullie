@@ -12,7 +12,7 @@ use strum::{Display, EnumIter};
 
 use crate::dependency::{Dependency, ParseError};
 use crate::registry::Release;
-use crate::update::{CompareError, Outdated};
+use crate::update::{CompareError, Outdated, Update};
 
 /// A language ecosystem whose projects Wullie can find.
 ///
@@ -78,6 +78,14 @@ impl Ecosystem {
             Self::Rust => rust::outdated(requirement, releases),
             Self::Python => python::outdated(requirement, releases),
             Self::JavaScript => Ok(None),
+        }
+    }
+
+    /// Pins dependencies in a manifest to the selected release versions.
+    pub fn pin(self, contents: &str, updates: &[Update]) -> Result<String, ParseError> {
+        match self {
+            Self::Rust => rust::pin(contents, updates),
+            Self::Python | Self::JavaScript => Ok(contents.to_owned()),
         }
     }
 }
@@ -202,6 +210,26 @@ mod tests {
         assert!(Ecosystem::Rust.has_registry());
         assert!(Ecosystem::Python.has_registry());
         assert!(!Ecosystem::JavaScript.has_registry());
+    }
+
+    #[test]
+    fn only_rust_manifests_are_pinned() {
+        let contents = "[dependencies]\nexample = \"1\"\n";
+        let updates = [crate::update::Update {
+            dependency: crate::dependency::Dependency::new("example", "1"),
+            lowest: "1.0.0".to_owned(),
+            latest: "1.2.0".to_owned(),
+        }];
+
+        assert_eq!(
+            Ecosystem::Rust.pin(contents, &updates).unwrap(),
+            "[dependencies]\nexample = \"=1.2.0\"\n"
+        );
+        assert_eq!(Ecosystem::Python.pin(contents, &updates).unwrap(), contents);
+        assert_eq!(
+            Ecosystem::JavaScript.pin(contents, &updates).unwrap(),
+            contents
+        );
     }
 
     #[test]

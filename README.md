@@ -22,22 +22,22 @@ A directory with manifests for more than one ecosystem is found once per ecosyst
 
 ## Output
 
-Wullie prints only out-of-date dependencies, one tab-separated line per dependency.
-Each line contains `<ecosystem>\t<project directory>\t<name>\t<requirement>\t<lowest>\t<latest>`.
-`<lowest>` is the lowest published, non-yanked release matching the requirement, and `<latest>` is the newest non-yanked release.
-A dependency is out of date when `<lowest>` is older than `<latest>`, even if its requirement also permits the newest release.
-A project with no out-of-date dependencies produces no output.
+Stdout contains one combined unified diff for all changed manifests, with paths relative to `PATH`.
+Run `git apply` or `patch -p1` from `PATH` (or pipe `wullie` into `git apply`) to apply the diff.
+Stderr contains only warnings and errors, so a clean run with nothing to pin prints nothing at all.
+
 Rust dependencies that specify `registry` or `registry-index` are omitted, so private packages are not compared with same-named crates.io packages.
+Applying a dependency diff does not install and update packages and update lock files; remember to regenerate and recommit `Cargo.lock`, `uv.lock` or the equivalent afterward.
 Rust update checks contact the crates.io sparse index at `https://index.crates.io`.
 Python update checks contact the PyPI Simple API at `https://pypi.org/simple`.
 
 Results respect ignore files and hidden directories, and skip `target/`, `__pycache__/`, `__pypackages__/`, `site-packages/`, `node_modules/` and `bower_components/` directories.
-Walk, manifest, lookup and comparison problems are printed to stderr as warnings before update output, and the search carries on.
+Walk, manifest, lookup, comparison and diff-generation problems are printed to stderr as warnings, and the search carries on.
 
 Wullie exits with:
 
 - `0` when the search results are complete, whether or not any projects were found; cache warnings do not change this;
-- `2` when searching or writing output encountered a problem, including incomplete-result warnings, an invalid `PATH`, bad arguments or a failure to write the output.
+- `2` when searching or writing stdout encountered a problem, including incomplete-result warnings, an invalid `PATH` or bad arguments.
 
 ## Lookup cache
 

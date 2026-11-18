@@ -4,11 +4,11 @@
 use std::ffi::OsStr;
 
 use semver::{Version, VersionReq};
-use toml_edit::{DocumentMut, Item};
+use toml_edit::{DocumentMut, Item, Value};
 
 use crate::dependency::{Dependency, ParseError};
 use crate::registry::Release;
-use crate::update::{CompareError, Outdated};
+use crate::update::{CompareError, Outdated, Update};
 
 /// Cargo's build output directory. Every directory with this name is pruned,
 /// including ones in non-Rust trees.
@@ -80,6 +80,78 @@ pub fn dependencies(contents: &str) -> Result<Vec<Dependency>, ParseError> {
     Ok(dependencies)
 }
 
+/// Pins matching Cargo dependencies to their selected release versions.
+pub fn pin(contents: &str, updates: &[Update]) -> Result<String, ParseError> {
+    let mut document = contents.parse::<DocumentMut>().map_err(ParseError::toml)?;
+
+    for (name, item) in document.iter_mut() {
+        if TABLES.contains(&name.get()) {
+            pin_dependency_table(item, updates)?;
+        }
+    }
+
+    if let Some(targets) = document.get_mut("target").and_then(Item::as_table_like_mut) {
+        for (_, target) in targets.iter_mut() {
+            let Some(target) = target.as_table_like_mut() else {
+                continue;
+            };
+            for (name, item) in target.iter_mut() {
+                if TABLES.contains(&name.get()) {
+                    pin_dependency_table(item, updates)?;
+                }
+            }
+        }
+    }
+
+    if let Some(workspace_dependencies) = document
+        .get_mut("workspace")
+        .and_then(Item::as_table_like_mut)
+        .and_then(|workspace| workspace.get_mut("dependencies"))
+    {
+        pin_dependency_table(workspace_dependencies, updates)?;
+    }
+
+    Ok(document.to_string())
+}
+
+fn pin_dependency_table(item: &mut Item, updates: &[Update]) -> Result<(), ParseError> {
+    let Some(table) = item.as_table_like_mut() else {
+        return Ok(());
+    };
+
+    for (key, item) in table.iter_mut() {
+        let Some(dependency) = parse_dependency(key.get(), item)? else {
+            continue;
+        };
+        let Some(update) = updates.iter().find(|update| {
+            update.dependency.name == dependency.name
+                && update.dependency.requirement == dependency.requirement
+        }) else {
+            continue;
+        };
+        let requirement = format!("={}", update.latest);
+        replace_requirement(item, &requirement);
+    }
+
+    Ok(())
+}
+
+fn replace_requirement(item: &mut Item, requirement: &str) {
+    let version = if item.as_str().is_some() {
+        Some(item)
+    } else {
+        item.as_table_like_mut()
+            .and_then(|table| table.get_mut("version"))
+    };
+    let Some(value) = version.and_then(Item::as_value_mut) else {
+        return;
+    };
+
+    let decor = value.decor().clone();
+    *value = Value::from(requirement.to_owned());
+    value.decor_mut().clone_from(&decor);
+}
+
 /// Yields every dependency table Cargo reads: the top-level tables, then those
 /// under each `target.<spec>`, then `workspace.dependencies`.
 fn dependency_tables(document: &DocumentMut) -> impl Iterator<Item = &Item> {
@@ -139,9 +211,9 @@ mod tests {
 
     use crate::dependency::Dependency;
     use crate::registry::Release;
-    use crate::update::Outdated;
+    use crate::update::{Outdated, Update};
 
-    use super::{dependencies, is_manifest, outdated};
+    use super::{dependencies, is_manifest, outdated, pin};
 
     fn dependency(name: &str, requirement: &str) -> Dependency {
         Dependency::new(name, requirement)
@@ -151,6 +223,14 @@ mod tests {
         Release {
             version: version.to_owned(),
             yanked,
+        }
+    }
+
+    fn update(name: &str, requirement: &str, latest: &str) -> Update {
+        Update {
+            dependency: dependency(name, requirement),
+            lowest: String::new(),
+            latest: latest.to_owned(),
         }
     }
 
@@ -187,6 +267,62 @@ mod tests {
                 dependency("section_crate", "=2.1.3"),
             ]
         );
+    }
+
+    #[test]
+    fn pins_string_inline_section_target_and_workspace_dependencies() {
+        let contents = r#"# manifest comment
+[dependencies]
+serde = "1" # serde comment
+renamed = { package = "renamed-crate", version = "^0.4", path = "../renamed" }
+
+[dependencies.section_crate]
+version = "=2.1.3" # section comment
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[workspace.dependencies]
+shared = "3"
+"#;
+        let updates = [
+            update("serde", "1", "1.2.0"),
+            update("renamed-crate", "^0.4", "0.9.0"),
+            update("section_crate", "=2.1.3", "2.2.0"),
+            update("libc", "0.2", "0.2.9"),
+            update("shared", "3", "3.1.0"),
+        ];
+
+        let pinned = pin(contents, &updates).unwrap();
+
+        assert!(pinned.contains("serde = \"=1.2.0\" # serde comment"));
+        assert!(pinned.contains("version = \"=0.9.0\""));
+        assert!(pinned.contains("version = \"=2.2.0\" # section comment"));
+        assert!(pinned.contains("libc = \"=0.2.9\""));
+        assert!(pinned.contains("shared = \"=3.1.0\""));
+        assert!(pinned.starts_with("# manifest comment\n"));
+    }
+
+    #[test]
+    fn pins_duplicate_names_with_distinct_requirements_and_leaves_unmatched_entries() {
+        let contents = r#"
+            [dependencies]
+            shared = "1"
+            unmatched = "4"
+
+            [dev-dependencies]
+            shared_alias = { package = "shared", version = "2" }
+        "#;
+        let updates = [
+            update("shared", "1", "3.0.0"),
+            update("shared", "2", "3.0.0"),
+        ];
+
+        let pinned = pin(contents, &updates).unwrap();
+
+        assert!(pinned.contains("shared = \"=3.0.0\""));
+        assert!(pinned.contains("version = \"=3.0.0\""));
+        assert!(pinned.contains("unmatched = \"4\""));
     }
 
     #[test]

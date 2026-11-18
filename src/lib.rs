@@ -4,11 +4,13 @@
 //! Library functionality for finding projects and their dependency version requirements.
 
 pub mod dependency;
+pub mod diff;
 pub mod project;
 pub mod registry;
 pub mod update;
 pub mod walk;
 pub use dependency::find_dependencies;
+pub use diff::manifest_diffs;
 pub use update::find_updates;
 pub use walk::WalkError;
 

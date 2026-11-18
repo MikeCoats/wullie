@@ -11,8 +11,7 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use clap::Parser;
 use wullie::registry::{Cache, HttpRegistry, MAX_AGE};
-use wullie::update::ProjectUpdates;
-use wullie::{find_dependencies, find_projects, find_updates};
+use wullie::{find_dependencies, find_projects, find_updates, manifest_diffs};
 
 /// Wullie - yer local groundskeeper
 #[derive(Parser)]
@@ -32,7 +31,7 @@ fn main() -> ExitCode {
     let root = match start_path(cli.path) {
         Ok(path) => path,
         Err(error) => {
-            eprintln!("Error: {error:#}");
+            write_stderr(format!("Error: {error:#}"));
             return ExitCode::from(2);
         }
     };
@@ -42,36 +41,40 @@ fn main() -> ExitCode {
     let (cache, cache_unavailable) = cache(cli.refresh);
     let registry = HttpRegistry::new(cache);
     let update_findings = find_updates(&dependency_findings.projects, &registry);
+    let diff_findings = manifest_diffs(&root, &update_findings.projects);
 
     for error in &project_findings.errors {
-        eprintln!("Warning: {error:#}");
+        write_stderr(format!("Warning: {error:#}"));
     }
     for error in &dependency_findings.errors {
-        eprintln!("Warning: {error:#}");
+        write_stderr(format!("Warning: {error:#}"));
     }
     for error in &update_findings.errors {
-        eprintln!("Warning: {error:#}");
+        write_stderr(format!("Warning: {error:#}"));
+    }
+    for error in &diff_findings.errors {
+        write_stderr(format!("Warning: {error:#}"));
     }
     if let Some(error) = registry.cache_write_error() {
-        eprintln!("Warning: {error:#}");
+        write_stderr(format!("Warning: {error:#}"));
     }
     if cache_unavailable {
-        eprintln!(
-            "Warning: cannot determine user cache directory; registry lookups will not be cached"
+        write_stderr(
+            "Warning: cannot determine user cache directory; registry lookups will not be cached",
         );
     }
 
-    let output = write_updates(io::stdout().lock(), &update_findings.projects);
-    match &output {
-        Err(error) if error.kind() != ErrorKind::BrokenPipe => {
-            eprintln!("Error: cannot write output: {error}");
-        }
-        _ => {}
+    let output = write_diff(io::stdout().lock(), &diff_findings.diff);
+    if let Err(error) = &output
+        && error.kind() != ErrorKind::BrokenPipe
+    {
+        write_stderr(format!("Error: cannot write output: {error}"));
     }
 
     let had_warnings = !project_findings.errors.is_empty()
         || !dependency_findings.errors.is_empty()
-        || !update_findings.errors.is_empty();
+        || !update_findings.errors.is_empty()
+        || !diff_findings.errors.is_empty();
     ExitCode::from(exit_status(had_warnings, &output))
 }
 
@@ -98,23 +101,17 @@ fn exit_status(had_warnings: bool, output: &io::Result<()>) -> u8 {
     if had_warnings || output_failed { 2 } else { 0 }
 }
 
-fn write_updates(output: impl Write, projects: &[ProjectUpdates]) -> io::Result<()> {
-    let mut output = BufWriter::new(output);
-    for project in projects {
-        for update in &project.updates {
-            writeln!(
-                output,
-                "{}\t{}\t{}\t{}\t{}\t{}",
-                project.project.ecosystem(),
-                project.project.dir().display(),
-                update.dependency.name,
-                update.dependency.requirement,
-                update.lowest,
-                update.latest
-            )?;
-        }
+fn write_diff(output: impl Write, diff: &str) -> io::Result<()> {
+    if diff.is_empty() {
+        return Ok(());
     }
+    let mut output = BufWriter::new(output);
+    output.write_all(diff.as_bytes())?;
     output.flush()
+}
+
+fn write_stderr(message: impl std::fmt::Display) {
+    let _ = writeln!(io::stderr().lock(), "{message}");
 }
 
 fn start_path(arg: Option<PathBuf>) -> Result<PathBuf> {
@@ -135,14 +132,10 @@ fn start_path(arg: Option<PathBuf>) -> Result<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Cli, exit_status, start_path, write_updates};
+    use super::{Cli, exit_status, start_path, write_diff};
     use clap::CommandFactory;
     use std::io::{self, ErrorKind, Write};
     use std::{env, fs, path::PathBuf};
-    use tempfile::TempDir;
-    use wullie::dependency::Dependency;
-    use wullie::find_projects;
-    use wullie::update::{ProjectUpdates, Update};
 
     struct ClosedPipe;
 
@@ -156,47 +149,19 @@ mod tests {
         }
     }
 
-    fn projects() -> (TempDir, Vec<ProjectUpdates>) {
-        let temp = TempDir::new().unwrap();
-        fs::write(temp.path().join("Cargo.toml"), "").unwrap();
-        let project = find_projects(temp.path()).projects.remove(0);
-        let projects = vec![ProjectUpdates {
-            project,
-            updates: vec![
-                Update {
-                    dependency: Dependency::new("bar", "1"),
-                    lowest: "1.0.0".to_owned(),
-                    latest: "1.2.0".to_owned(),
-                },
-                Update {
-                    dependency: Dependency::new("libc", "0.2"),
-                    lowest: "0.2.0".to_owned(),
-                    latest: "0.2.3".to_owned(),
-                },
-            ],
-        }];
-        (temp, projects)
-    }
-
     #[test]
-    fn writes_six_tab_separated_columns_per_outdated_dependency() {
+    fn writes_diff_unchanged() {
         let mut output = Vec::new();
-        let (_temp, projects) = projects();
-        write_updates(&mut output, &projects).unwrap();
+        write_diff(&mut output, "--- a/Cargo.toml\n+++ b/Cargo.toml\n").unwrap();
         assert_eq!(
             String::from_utf8(output).unwrap(),
-            format!(
-                "rust\t{}\tbar\t1\t1.0.0\t1.2.0\nrust\t{}\tlibc\t0.2\t0.2.0\t0.2.3\n",
-                projects[0].project.dir().display(),
-                projects[0].project.dir().display()
-            )
+            "--- a/Cargo.toml\n+++ b/Cargo.toml\n"
         );
     }
 
     #[test]
-    fn closed_output_returns_broken_pipe_instead_of_panicking() {
-        let (_temp, projects) = projects();
-        let error = write_updates(ClosedPipe, &projects).unwrap_err();
+    fn closed_diff_output_returns_broken_pipe_instead_of_panicking() {
+        let error = write_diff(ClosedPipe, "--- a/Cargo.toml\n").unwrap_err();
         assert_eq!(error.kind(), ErrorKind::BrokenPipe);
     }
 
