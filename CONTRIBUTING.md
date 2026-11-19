@@ -7,11 +7,11 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 ## Prerequisites
 
-- [Rust](https://rustup.rs/) 1.88 or newer
-- [`just`](https://just.systems/): `cargo install just`
-- [`reuse`](https://reuse.software/): e.g. `pipx install reuse`
+- [Rust][rust] 1.88 or newer
+- [`just`][just]: `cargo install just`
+- [`reuse`][reuse] e.g. `pipx install reuse`
 
-## Common commands
+## Common Recipes
 
 | Command      | What it does                                         |
 |--------------|------------------------------------------------------|
@@ -25,7 +25,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 ## Licensing
 
-This repository is [REUSE](https://reuse.software/)-compliant.
+This repository is [REUSE][reuse]-compliant.
 Every new file needs an SPDX header, for example:
 
 ```rust
@@ -36,13 +36,13 @@ Every new file needs an SPDX header, for example:
 Files that can't hold a comment (such as `Cargo.lock`) need an entry in `REUSE.toml` instead.
 `just reuse` checks this.
 
-## Dependency output
+## Dependency Output
 
 Wullie represents dependency declarations as one list without separating normal, development, build, optional, workspace or target-specific dependencies.
 Development dependencies can be an attack path, and optional dependencies may receive less testing while still affecting live deployments.
 Ecosystems also divide dependencies differently, so the shared dependency model does not encode those categories.
 
-## Version requirements
+## Version Requirements
 
 The Update Finder treats a dependency as outdated when the lowest published, non-yanked release matching its requirement is older than the newest non-yanked release.
 It does not treat a range as current just because that range also permits the latest release.
@@ -58,22 +58,20 @@ A bare Python name has an empty requirement and matches every release, so it is 
 
 The Diff Maker prints one combined unified diff to stdout.
 The paths in the diff are relative to the starting `PATH`.
-Run `wullie [PATH] > updates.patch` to review the patch, or `wullie [PATH] | git apply` to apply it from `PATH`.
-The diff already shows every pinned change, so stderr carries only warnings and errors.
-A run that has nothing to report is silent, which suits cron jobs and pipelines such as `wullie | git apply`.
-If writing to stderr fails, Wullie ignores that failure because there is nowhere else to report it.
+The diff already every change across every project, so stderr carries only warnings and errors.
 
 The Diff Maker replaces every range (caret, tilde, wildcard, comparison or bare name) with an exact pin of the newest non-yanked release: `=x.y.z` for Cargo, `==x.y.z` for Python.
+For Python requirements, extras, environment markers and surrounding TOML comments are retained when the version specifier is replaced.
 It pins to the newest release even when that crosses a major version, and drops other bounds and exclusions such as `<3` or `!=2.1.0`.
 The Diff Maker never updates lock files, so regenerate `Cargo.lock`, `uv.lock` or the equivalent after applying a diff.
 
-## Registry design
+## Registry
 
 `Registry` is a trait because registry clients are an open set, including crates.io and PyPI now and possible JavaScript registries later.
 The trait also lets tests use a fake registry without making network requests.
 `Ecosystem` remains an enum because the supported ecosystems are a closed set, and exhaustive matches ensure each ecosystem handles every pipeline stage.
 
-### Lookup cache
+### Look-up Cache
 
 Raw index bodies are stored under `$XDG_CACHE_HOME/wullie/<ecosystem>/<index path>`.
 An entry is fresh for a fixed 4 hours from its file modification time, and `--refresh` treats every entry as stale.
@@ -84,17 +82,14 @@ We deliberately don't revalidate with `ETag` or `Last-Modified`: a fixed lifetim
 The library uses `thiserror` for typed errors without exposing dependency-specific error types in its public API.
 The CLI uses `anyhow` to add context to command-line errors.
 
-## Directory pruning
+## Pruning
 
 Wullie prunes the union of every ecosystem's build, cache and dependency directory names throughout the tree.
 This is intentional: it avoids traversing large generated or vendored trees and prevents unrelated ecosystem manifests inside them from being reported.
 A directory is pruned by name even when it is not actually used for that ecosystem.
 The starting directory itself is not pruned, so searching from a directory with one of these names still works.
 
-## Exit codes
-
-The README describes what each exit code means; this section explains why.
-The logic lives in `exit_status` in `src/main.rs`.
+## Exit Codes
 
 - **We follow `ripgrep`.**
   It is a well-known search tool with the same shape as Wullie: walk a tree, print results, warn about problems along the way.
@@ -109,7 +104,13 @@ The logic lives in `exit_status` in `src/main.rs`.
 
 Every sentence should be written on its own line.
 Rendered HTML joins the lines back into paragraphs, and diffs then show exactly which sentence changed.
+Reference-style links are preferred to inline links.
 
-## Before submitting
+## Before Submitting
 
 Make sure `just ci` passes.
+
+
+[rust]: https://rustup.rs/
+[just]: https://just.systems/
+[reuse]: https://reuse.software/

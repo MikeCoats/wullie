@@ -7,10 +7,19 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 > Yer local groundskeeper
 
+`wullie` is an opinionated tool for managing dependency requirements in Rust, Python, and JavaScript projects.
+
+`wullie` believes that `>`, `^`, and `~` are all useful signifiers for specifying dependencies during development, but for maintenance of live, deployed, projects there is opportunity for a security gap.
+_In theory_, npm, cargo and pip will automatically install the most recent specified package, hopefully picking up any security updates, but in practice these often don't make it through to production in a timely manner.
+Lockfiles seek to address this gap, but hide it behind separate commands or sources, making it possible to accidentally install insecure versions.
+
+`wullie` instead makes dependency management an intentional task, but provides a simple way to keep dependencies up-to-date.
+
 ## Usage
 
-Run `wullie [PATH]` to find out-of-date dependency requirements under `PATH`.
-If omitted, Wullie uses the current working directory.
+Run `wullie [PATH]` to find out-of-date dependencies and generate a `git apply`-ible patch with the latest updates.
+
+Applying a dependency diff does not install and update packages or update lock files; remember to regenerate and recommit `Cargo.lock`, `uv.lock` or the equivalent afterward.
 
 Wullie recursively searches for supported project manifests:
 
@@ -20,36 +29,22 @@ Wullie recursively searches for supported project manifests:
 
 A directory with manifests for more than one ecosystem is found once per ecosystem.
 
-## Output
+To save potentially thousands of duplicate network calls `wullie` caches its lookups for four hours.
+If you need to fetch a fresh dependency for a recent security update, run `wullie --refresh [PATH]` to ignore cached lookups, fetch them again and update the cache.
 
-Stdout contains one combined unified diff for all changed manifests, with paths relative to `PATH`.
-Run `git apply` or `patch -p1` from `PATH` (or pipe `wullie` into `git apply`) to apply the diff.
-Stderr contains only warnings and errors, so a clean run with nothing to pin prints nothing at all.
+## Nerdy Details
 
+For Rust packages, `wullie` checks the crates.io sparse index at `https://index.crates.io`.
 Rust dependencies that specify `registry` or `registry-index` are omitted, so private packages are not compared with same-named crates.io packages.
-Applying a dependency diff does not install and update packages and update lock files; remember to regenerate and recommit `Cargo.lock`, `uv.lock` or the equivalent afterward.
-Rust update checks contact the crates.io sparse index at `https://index.crates.io`.
-Python update checks contact the PyPI Simple API at `https://pypi.org/simple`.
 
-Results respect ignore files and hidden directories, and skip `target/`, `__pycache__/`, `__pypackages__/`, `site-packages/`, `node_modules/` and `bower_components/` directories.
-Walk, manifest, lookup, comparison and diff-generation problems are printed to stderr as warnings, and the search carries on.
+For Python packages, `wullie` checks the PyPI Simple API at `https://pypi.org/simple`.
+Python dependencies with declared extras and environment markers are retained.
 
-Wullie exits with:
-
-- `0` when the search results are complete, whether or not any projects were found; cache warnings do not change this;
-- `2` when searching or writing stdout encountered a problem, including incomplete-result warnings, an invalid `PATH` or bad arguments.
-
-## Lookup cache
-
-Registry lookups are cached in `$XDG_CACHE_HOME/wullie/` (usually `~/.cache/wullie/`).
-A cached lookup is reused for 4 hours, so releases published or yanked within that time may not be seen until it expires.
-Run `wullie --refresh [PATH]` to ignore cached lookups, fetch them again and update the cache.
-If the cache can't be read or written, Wullie fetches from the registry instead.
-If Wullie cannot determine a user cache directory, it warns that lookups will not be cached, but still completes normally.
+`wullie`'s scanner respects standard ignore files and hidden directories, and skips `target/`, `__pycache__/`, `__pypackages__/`, `site-packages/`, `node_modules/` and `bower_components/` directories.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for how to build, test and lint Wullie.
+See [CONTRIBUTING.md][contrib] for how to build, test and lint Wullie.
 
 ## Licensing
 
@@ -58,4 +53,7 @@ The licensing of each file can be divined with `reuse spdx` or `reuse lint`, but
 
 - All original source code is licensed under GPL-3.0-or-later.
 
-Contributors: see [CONTRIBUTING.md](CONTRIBUTING.md#licensing) for how to licence new files.
+Contributors: see [CONTRIBUTING.md][licensing] for how to licence new files.
+
+[contrib]: ./CONTRIBUTING.md
+[licensing]: ./CONTRIBUTING.md#licensing
