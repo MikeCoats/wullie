@@ -85,7 +85,8 @@ impl Ecosystem {
     pub fn pin(self, contents: &str, updates: &[Update]) -> Result<String, ParseError> {
         match self {
             Self::Rust => rust::pin(contents, updates),
-            Self::Python | Self::JavaScript => Ok(contents.to_owned()),
+            Self::Python => python::pin(contents, updates),
+            Self::JavaScript => Ok(contents.to_owned()),
         }
     }
 }
@@ -213,7 +214,7 @@ mod tests {
     }
 
     #[test]
-    fn only_rust_manifests_are_pinned() {
+    fn pins_rust_and_python_manifests_but_leaves_javascript_unchanged() {
         let contents = "[dependencies]\nexample = \"1\"\n";
         let updates = [crate::update::Update {
             dependency: crate::dependency::Dependency::new("example", "1"),
@@ -225,7 +226,18 @@ mod tests {
             Ecosystem::Rust.pin(contents, &updates).unwrap(),
             "[dependencies]\nexample = \"=1.2.0\"\n"
         );
-        assert_eq!(Ecosystem::Python.pin(contents, &updates).unwrap(), contents);
+        let python_contents = "[project]\ndependencies = [\"example>=1\"]\n";
+        let python_updates = [crate::update::Update {
+            dependency: crate::dependency::Dependency::new("example", ">=1"),
+            lowest: "1.0".to_owned(),
+            latest: "1.2.0".to_owned(),
+        }];
+        assert_eq!(
+            Ecosystem::Python
+                .pin(python_contents, &python_updates)
+                .unwrap(),
+            "[project]\ndependencies = [\"example==1.2.0\"]\n"
+        );
         assert_eq!(
             Ecosystem::JavaScript.pin(contents, &updates).unwrap(),
             contents

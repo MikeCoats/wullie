@@ -9,7 +9,7 @@ use toml_edit::{DocumentMut, Item};
 
 use crate::dependency::{Dependency, ParseError};
 use crate::registry::Release;
-use crate::update::{CompareError, Outdated};
+use crate::update::{CompareError, Outdated, Update};
 
 /// Directories holding installed or cached Python code rather than projects.
 /// Every directory with one of these names is pruned, including ones in
@@ -123,16 +123,83 @@ pub fn dependencies(contents: &str) -> Result<Vec<Dependency>, ParseError> {
     Ok(dependencies)
 }
 
+/// Pins matching Python dependencies to their selected release versions.
+pub fn pin(contents: &str, updates: &[Update]) -> Result<String, ParseError> {
+    let mut document = contents.parse::<DocumentMut>().map_err(ParseError::toml)?;
+
+    if let Some(project) = document
+        .get_mut("project")
+        .and_then(Item::as_table_like_mut)
+    {
+        if let Some(array) = project.get_mut("dependencies").and_then(Item::as_array_mut) {
+            pin_requirements(array, updates);
+        }
+
+        if let Some(optional) = project
+            .get_mut("optional-dependencies")
+            .and_then(Item::as_table_like_mut)
+        {
+            for (_, group) in optional.iter_mut() {
+                if let Some(array) = group.as_array_mut() {
+                    pin_requirements(array, updates);
+                }
+            }
+        }
+    }
+
+    if let Some(groups) = document
+        .get_mut("dependency-groups")
+        .and_then(Item::as_table_like_mut)
+    {
+        for (_, group) in groups.iter_mut() {
+            if let Some(array) = group.as_array_mut() {
+                pin_requirements(array, updates);
+            }
+        }
+    }
+
+    Ok(document.to_string())
+}
+
+fn pin_requirements(array: &mut toml_edit::Array, updates: &[Update]) {
+    for value in array.iter_mut() {
+        let Some(requirement) = value.as_str().and_then(parse_requirement) else {
+            continue;
+        };
+        let Some(update) = updates.iter().find(|update| {
+            update.dependency.name == requirement.dependency.name
+                && update.dependency.requirement == requirement.dependency.requirement
+        }) else {
+            continue;
+        };
+
+        let pinned = format!(
+            "{}=={}{}",
+            requirement.prefix, update.latest, requirement.marker
+        );
+        let decor = value.decor().clone();
+        *value = toml_edit::Value::from(pinned);
+        value.decor_mut().clone_from(&decor);
+    }
+}
+
 fn append_requirements(array: &toml_edit::Array, dependencies: &mut Vec<Dependency>) {
     dependencies.extend(
         array
             .iter()
             .filter_map(|value| value.as_str())
-            .filter_map(parse_requirement),
+            .filter_map(parse_requirement)
+            .map(|parsed| parsed.dependency),
     );
 }
 
-fn parse_requirement(requirement: &str) -> Option<Dependency> {
+struct ParsedRequirement {
+    dependency: Dependency,
+    prefix: String,
+    marker: String,
+}
+
+fn parse_requirement(requirement: &str) -> Option<ParsedRequirement> {
     let requirement = requirement.trim();
     let name_end = requirement
         .char_indices()
@@ -146,26 +213,34 @@ fn parse_requirement(requirement: &str) -> Option<Dependency> {
         return None;
     }
 
-    let mut rest = requirement[name_end..].trim_start();
+    let mut prefix_end = name_end;
+    let rest = requirement[name_end..].trim_start();
     if let Some(extras) = rest.strip_prefix('[') {
         let closing = extras.find(']')?;
-        rest = extras[closing + 1..].trim_start();
+        prefix_end += requirement[name_end..].len() - rest.len() + closing + 2;
     }
+    let rest = requirement[prefix_end..].trim_start();
     if rest.starts_with('@') {
         return None;
     }
 
-    let version = rest
-        .split_once(';')
-        .map_or(rest, |(version, _)| version)
-        .trim();
+    let (version, marker) = if let Some((version, _)) = rest.split_once(';') {
+        (version, &rest[version.len()..])
+    } else {
+        (rest, "")
+    };
+    let version = version.trim();
     let version = version
         .strip_prefix('(')
         .and_then(|version| version.strip_suffix(')'))
         .unwrap_or(version)
         .trim();
 
-    Some(Dependency::new(name, version))
+    Some(ParsedRequirement {
+        dependency: Dependency::new(name, version),
+        prefix: requirement[..prefix_end].to_owned(),
+        marker: marker.to_owned(),
+    })
 }
 
 #[cfg(test)]
@@ -174,9 +249,17 @@ mod tests {
 
     use crate::dependency::Dependency;
     use crate::registry::Release;
-    use crate::update::Outdated;
+    use crate::update::{Outdated, Update};
 
-    use super::{dependencies, is_manifest, normalize_name, outdated, parse_requirement};
+    use super::{dependencies, is_manifest, normalize_name, outdated, parse_requirement, pin};
+
+    fn update(name: &str, requirement: &str, latest: &str) -> Update {
+        Update {
+            dependency: Dependency::new(name, requirement),
+            lowest: String::new(),
+            latest: latest.to_owned(),
+        }
+    }
 
     fn release(version: &str, yanked: bool) -> Release {
         Release {
@@ -374,22 +457,88 @@ mod tests {
 
     #[test]
     fn parses_pep_508_requirements_and_skips_direct_references() {
-        assert_eq!(
-            parse_requirement(" package_name[extra]>=1.2 ; python_version < '4' "),
-            Some(Dependency::new("package_name", ">=1.2"))
-        );
-        assert_eq!(
-            parse_requirement("local-package @ https://example.invalid/pkg"),
-            None
-        );
+        let parsed =
+            parse_requirement(" package_name[extra]>=1.2 ; python_version < '4' ").unwrap();
+        assert_eq!(parsed.dependency, Dependency::new("package_name", ">=1.2"));
+        assert_eq!(parsed.prefix, "package_name[extra]");
+        assert_eq!(parsed.marker, "; python_version < '4'");
+        assert!(parse_requirement("local-package @ https://example.invalid/pkg").is_none());
     }
 
     #[test]
     fn bare_names_have_empty_requirements() {
-        assert_eq!(
-            parse_requirement("bare_name"),
-            Some(Dependency::new("bare_name", ""))
-        );
+        let parsed = parse_requirement("bare_name").unwrap();
+        assert_eq!(parsed.dependency, Dependency::new("bare_name", ""));
+        assert_eq!(parsed.prefix, "bare_name");
+        assert_eq!(parsed.marker, "");
+    }
+
+    #[test]
+    fn pins_project_dependencies_optionals_and_groups() {
+        let contents = r#"
+[project]
+dependencies = ["requests>=2.31", "attrs (>=23.1)", "bare-name"]
+
+[project.optional-dependencies]
+test = ["pytest[asyncio]>=7; python_version >= '3.9'"]
+
+[dependency-groups]
+dev = ["ruff>=0.1"]
+"#;
+        let updates = [
+            update("requests", ">=2.31", "2.32.3"),
+            update("attrs", ">=23.1", "24.0"),
+            update("bare-name", "", "1.2"),
+            update("pytest", ">=7", "8.0"),
+            update("ruff", ">=0.1", "0.2"),
+        ];
+
+        let pinned = pin(contents, &updates).unwrap();
+
+        assert!(pinned.contains("requests==2.32.3"));
+        assert!(pinned.contains("attrs==24.0"));
+        assert!(pinned.contains("bare-name==1.2"));
+        assert!(pinned.contains("pytest[asyncio]==8.0; python_version >= '3.9'"));
+        assert!(pinned.contains("ruff==0.2"));
+    }
+
+    #[test]
+    fn keeps_comments_and_unmatched_or_direct_reference_entries() {
+        let contents = r#"
+[project]
+dependencies = [
+    "requests>=2.31", # keep this comment
+    "other>=1",
+    "local-package @ https://example.invalid/pkg",
+]
+"#;
+
+        let pinned = pin(contents, &[update("requests", ">=2.31", "2.32.3")]).unwrap();
+
+        assert!(pinned.contains("requests==2.32.3"));
+        assert!(pinned.contains("# keep this comment"));
+        assert!(pinned.contains("other>=1"));
+        assert!(pinned.contains("local-package @ https://example.invalid/pkg"));
+    }
+
+    #[test]
+    fn pins_duplicate_requirements_in_every_source() {
+        let contents = r#"
+[project]
+dependencies = ["requests>=2.31"]
+
+[dependency-groups]
+test = ["requests>=2.31"]
+"#;
+
+        let pinned = pin(contents, &[update("requests", ">=2.31", "2.32.3")]).unwrap();
+
+        assert_eq!(pinned.matches("requests==2.32.3").count(), 2);
+    }
+
+    #[test]
+    fn pin_reports_invalid_toml() {
+        assert!(pin("[project\ndependencies = [", &[]).is_err());
     }
 
     #[test]

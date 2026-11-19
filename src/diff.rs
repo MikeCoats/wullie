@@ -112,13 +112,13 @@ mod tests {
 
     use super::{DiffError, manifest_diffs, unified_diff};
 
-    fn project(manifest: &Path) -> Project {
-        Project::new(Ecosystem::Rust, manifest.to_path_buf()).unwrap()
+    fn project(ecosystem: Ecosystem, manifest: &Path) -> Project {
+        Project::new(ecosystem, manifest.to_path_buf()).unwrap()
     }
 
     fn updates(manifest: &Path, name: &str, requirement: &str, latest: &str) -> ProjectUpdates {
         ProjectUpdates {
-            project: project(manifest),
+            project: project(Ecosystem::Rust, manifest),
             updates: vec![Update {
                 dependency: Dependency::new(name, requirement),
                 lowest: String::new(),
@@ -173,6 +173,41 @@ mod tests {
 
         assert!(findings.diff.is_empty());
         assert!(findings.errors.is_empty());
+    }
+
+    #[test]
+    fn includes_python_pins_in_the_combined_diff() {
+        let temp = TempDir::new().unwrap();
+        let manifest = temp.path().join("app/pyproject.toml");
+        fs::create_dir_all(manifest.parent().unwrap()).unwrap();
+        fs::write(
+            &manifest,
+            "[project]\ndependencies = [\"pytest[asyncio]>=7; python_version >= '3.9'\"]\n",
+        )
+        .unwrap();
+        let update = ProjectUpdates {
+            project: project(Ecosystem::Python, &manifest),
+            updates: vec![Update {
+                dependency: Dependency::new("pytest", ">=7"),
+                lowest: "7.0".to_owned(),
+                latest: "8.0".to_owned(),
+            }],
+        };
+
+        let findings = manifest_diffs(temp.path(), &[update]);
+
+        assert!(findings.errors.is_empty());
+        assert!(findings.diff.contains("--- a/app/pyproject.toml\n"));
+        assert!(
+            findings
+                .diff
+                .contains("-dependencies = [\"pytest[asyncio]>=7; python_version >= '3.9'\"]")
+        );
+        assert!(
+            findings
+                .diff
+                .contains("+dependencies = [\"pytest[asyncio]==8.0; python_version >= '3.9'\"]")
+        );
     }
 
     #[test]
