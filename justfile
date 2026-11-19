@@ -27,3 +27,20 @@ msrv:
 # Check REUSE licensing compliance
 reuse:
     reuse lint
+
+# Build a release tarball in dist/
+dist target=`rustc -vV | sed -n 's/^host: //p'`:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    version=$(cargo pkgid | sed 's/.*[#@]//')
+    name="wullie-${version}-{{target}}"
+    cargo build --release --target {{target}}
+    rm -rf "dist/${name}"
+    mkdir -p "dist/${name}"
+    cp "target/{{target}}/release/wullie" README.md "dist/${name}/"
+    cp -r LICENSES "dist/${name}/"
+    tar --sort=name --owner=0 --group=0 --numeric-owner \
+        --mtime="@$(git log -1 --format=%ct)" \
+        -C dist -czf "dist/${name}.tar.gz" "${name}"
+    (cd dist && sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256")
+    echo "dist/${name}.tar.gz"

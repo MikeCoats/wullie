@@ -6,3 +6,6 @@
 
 # Build cache, etc.
 /target
+
+# Release tarballs
+/dist
