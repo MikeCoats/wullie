@@ -4,10 +4,15 @@
 [package]
 name = "wullie"
 version = "0.1.0"
-description = "A local project dependency and update finder"
-license = "GPL-3.0-or-later"
+authors = ["Mike Coats <i.am@mikecoats.com>"]
 edition = "2024"
 rust-version = "1.88"
+description = "A local project dependency and update finder"
+homepage = "https://wullie.mikecoats.xyz"
+repository = "https://codeberg.org/mikecoats/wullie"
+license = "GPL-3.0-or-later"
+keywords = ["command-line", "task", "development", "utility"]
+categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
 anyhow = "1.0.104"

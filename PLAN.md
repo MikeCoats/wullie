@@ -22,3 +22,14 @@ SPDX-License-Identifier: GPL-3.0-or-later
   - [x] Rust Support
   - [x] Python Support
   - [ ] JavaScript Support
+- [ ] Package
+  - [ ] As a tar.gz
+  - [ ] As a runnable crate - see `just`
+  - [ ] As a dpkg
+- [ ] Repos
+  - [ ] Codeberg
+  - [ ] GitHub
+    - [ ] Actions CI/CD
+- [ ] Docs
+  - [ ] Webpage
+  - [ ] Blog post & socials
