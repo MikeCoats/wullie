@@ -37,5 +37,6 @@ SPDX-License-Identifier: GPL-3.0-or-later
     - [ ] Linux MUSL
     - [ ] Mac x64
 - [ ] Docs
+  - [ ] `--help`
   - [ ] Webpage
   - [ ] Blog post & socials
