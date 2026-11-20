@@ -24,13 +24,13 @@ SPDX-License-Identifier: GPL-3.0-or-later
   - [ ] JavaScript Support
 - [ ] Package
   - [x] As a tar.gz
-  - [ ] As a runnable crate - see `just`
+  - [x] As a runnable crate
   - [ ] As a dpkg
 - [ ] Repos
   - [ ] Codeberg
   - [x] GitHub
-  - [ ] GH Actions CI/CD
-    - [ ] Linux x64
+  - [x] GH Actions CI/CD
+    - [x] Linux x64
     - [ ] Linux ARM
     - [ ] Mac ARM
     - [ ] Windows x64
