@@ -6,7 +6,7 @@ default:
     @just --list
 
 # Run every check that CI runs
-ci: fmt lint test msrv reuse
+ci: fmt lint test msrv reuse package
 
 # Check formatting
 fmt:
@@ -27,6 +27,10 @@ msrv:
 # Check REUSE licensing compliance
 reuse:
     reuse lint
+
+# Check the crate packages and builds as published
+package:
+    cargo package --allow-dirty
 
 # Build a release tarball in dist/
 dist target=`rustc -vV | sed -n 's/^host: //p'`:

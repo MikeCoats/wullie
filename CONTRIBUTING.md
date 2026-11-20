@@ -13,15 +13,17 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 ## Common Recipes
 
-| Command      | What it does                                         |
-|--------------|------------------------------------------------------|
-| `just`       | List the available recipes                           |
-| `just ci`    | Run every check that CI runs                         |
-| `just fmt`   | Check formatting with `cargo fmt --check`            |
-| `just lint`  | Lint with clippy, treating warnings as errors        |
-| `just test`  | Run the test suite                                   |
-| `just msrv`  | Check the build with Rust 1.88, the minimum version  |
-| `just reuse` | Check REUSE licensing compliance with `reuse lint`   |
+| Command        | What it does                                        |
+|----------------|-----------------------------------------------------|
+| `just`         | List the available recipes                          |
+| `just ci`      | Run every check that CI runs                        |
+| `just fmt`     | Check formatting with `cargo fmt --check`           |
+| `just lint`    | Lint with clippy, treating warnings as errors       |
+| `just test`    | Run the test suite                                  |
+| `just msrv`    | Check the build with Rust 1.88, the minimum version |
+| `just reuse`   | Check REUSE licensing compliance with `reuse lint`  |
+| `just package` | Check the crate packages and builds as published    |
+| `just dist`    | Build a release tarball for this machine in `dist/` |
 
 ## Licensing
 
