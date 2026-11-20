@@ -112,7 +112,41 @@ Reference-style links are preferred to inline links.
 
 Make sure `just ci` passes.
 
+## Releasing
+
+Pushing a `v*` tag starts the release workflow in `.github/workflows/release.yml`.
+
+1. Bump `version` in `Cargo.toml`.
+2. Run `just ci`, which also updates `Cargo.lock` to the new version.
+3. Commit `Cargo.toml` and `Cargo.lock` together, then push `main`.
+4. Tag the commit with a signed tag, named for the version prefixed by `v`, then push the tag:
+
+   ```bash
+   git tag -s v0.1.1
+   git push origin v0.1.1
+   ```
+
+   The tag message becomes the top of the GitHub release notes, followed by notes GitHub generates from the changes since the previous release.
+
+The tag must be `v` followed by the exact version in `Cargo.toml`.
+A tag without the `v` doesn't start the workflow, and a mismatched version fails it.
+It publishes the crate to [crates.io][crates-io] and attaches prebuilt tarballs to a GitHub release, which [`cargo binstall`][binstall] downloads.
+
+If the version check fails, delete the tag, fix the version, commit, and tag again:
+
+```bash
+git tag -d v0.1.1
+git push origin :refs/tags/v0.1.1
+```
+
+If a later step fails, a draft release may already exist.
+Delete it with `gh release delete v0.1.1` before pushing the tag again, or re-run the failed jobs from the Actions page if nothing needs to change.
+
+A version published to crates.io can be yanked but never replaced, so a broken release needs a new patch version.
+
 
 [rust]: https://rustup.rs/
 [just]: https://just.systems/
 [reuse]: https://reuse.software/
+[crates-io]: https://crates.io/crates/wullie
+[binstall]: https://github.com/cargo-bins/cargo-binstall

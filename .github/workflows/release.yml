@@ -25,7 +25,11 @@ jobs:
           [ "$TAG" = "v$version" ] || { echo "Tag $TAG != v$version"; exit 1; }
       - name: Check the crate packages for crates.io
         run: cargo publish --dry-run
-      - run: gh release create "$TAG" --draft --verify-tag --generate-notes
+      - name: Fetch the annotated tag
+        run: git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
+      - name: Extract the tag message
+        run: git tag --list "$TAG" --format='%(contents:subject)%0a%0a%(contents:body)' > "$RUNNER_TEMP/notes.md"
+      - run: gh release create "$TAG" --draft --verify-tag --generate-notes --notes-file "$RUNNER_TEMP/notes.md"
 
   build:
     needs: create
