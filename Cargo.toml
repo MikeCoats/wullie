@@ -9,10 +9,15 @@ edition = "2024"
 rust-version = "1.88"
 description = "A local project dependency and update finder"
 homepage = "https://wullie.mikecoats.xyz"
-repository = "https://codeberg.org/mikecoats/wullie"
+repository = "https://github.com/MikeCoats/wullie"
 license = "GPL-3.0-or-later"
 keywords = ["command-line", "task", "development", "utility"]
 categories = ["command-line-utilities", "development-tools"]
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ version }-{ target }{ archive-suffix }"
+bin-dir = "{ name }-{ version }-{ target }/{ bin }{ binary-ext }"
+pkg-fmt = "tgz"
 
 [dependencies]
 anyhow = "1.0.104"

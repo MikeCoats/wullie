@@ -39,8 +39,8 @@ dist target=`rustc -vV | sed -n 's/^host: //p'`:
     mkdir -p "dist/${name}"
     cp "target/{{target}}/release/wullie" README.md "dist/${name}/"
     cp -r LICENSES "dist/${name}/"
-    tar --sort=name --owner=0 --group=0 --numeric-owner \
+    "${TAR:-tar}" --sort=name --owner=0 --group=0 --numeric-owner \
         --mtime="@$(git log -1 --format=%ct)" \
         -C dist -czf "dist/${name}.tar.gz" "${name}"
-    (cd dist && sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256")
+    (cd dist && shasum -a 256 "${name}.tar.gz" > "${name}.tar.gz.sha256")
     echo "dist/${name}.tar.gz"

@@ -28,8 +28,14 @@ SPDX-License-Identifier: GPL-3.0-or-later
   - [ ] As a dpkg
 - [ ] Repos
   - [ ] Codeberg
-  - [ ] GitHub
-    - [ ] Actions CI/CD
+  - [x] GitHub
+  - [ ] GH Actions CI/CD
+    - [ ] Linux x64
+    - [ ] Linux ARM
+    - [ ] Mac ARM
+    - [ ] Windows x64
+    - [ ] Linux MUSL
+    - [ ] Mac x64
 - [ ] Docs
   - [ ] Webpage
   - [ ] Blog post & socials

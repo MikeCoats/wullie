@@ -8,7 +8,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 ## Prerequisites
 
 - [Rust][rust] 1.88 or newer
-- [`just`][just]: `cargo install just`
+- [`just`][just]: e.g. `cargo install just`, or `cargo binstall just` for a prebuilt binary
 - [`reuse`][reuse] e.g. `pipx install reuse`
 
 ## Common Recipes
