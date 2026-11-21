@@ -11,7 +11,7 @@ use etcetera::{AppStrategy, AppStrategyArgs};
 
 /// A cache entry could not be written.
 #[derive(Debug, thiserror::Error)]
-#[error("cannot write lookup cache entry {}: {source}", path.display())]
+#[error("cannot write lookup cache entry {}", path.display())]
 pub struct CacheError {
     path: PathBuf,
     #[source]

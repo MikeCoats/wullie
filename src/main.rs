@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use std::env;
+use std::error::Error;
 use std::fs;
 use std::io::{self, BufWriter, ErrorKind, Write};
 use std::path::PathBuf;
@@ -44,19 +45,19 @@ fn main() -> ExitCode {
     let diff_findings = manifest_diffs(&root, &update_findings.projects);
 
     for error in &project_findings.errors {
-        write_stderr(format!("Warning: {error:#}"));
+        warn(error);
     }
     for error in &dependency_findings.errors {
-        write_stderr(format!("Warning: {error:#}"));
+        warn(error);
     }
     for error in &update_findings.errors {
-        write_stderr(format!("Warning: {error:#}"));
+        warn(error);
     }
     for error in &diff_findings.errors {
-        write_stderr(format!("Warning: {error:#}"));
+        warn(error);
     }
     if let Some(error) = registry.cache_write_error() {
-        write_stderr(format!("Warning: {error:#}"));
+        warn(error);
     }
     if cache_unavailable {
         write_stderr(
@@ -110,6 +111,23 @@ fn write_diff(output: impl Write, diff: &str) -> io::Result<()> {
     output.flush()
 }
 
+fn warn(error: &dyn Error) {
+    write_stderr(format!("Warning: {}", chain(error)));
+}
+
+/// An error's message followed by each of its causes, separated by `: `, like
+/// `anyhow`'s `{:#}`.
+fn chain(error: &dyn Error) -> String {
+    let mut message = error.to_string().trim_end().to_owned();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        message.push_str(": ");
+        message.push_str(cause.to_string().trim_end());
+        source = cause.source();
+    }
+    message
+}
+
 fn write_stderr(message: impl std::fmt::Display) {
     let _ = writeln!(io::stderr().lock(), "{message}");
 }
@@ -132,7 +150,7 @@ fn start_path(arg: Option<PathBuf>) -> Result<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Cli, exit_status, start_path, write_diff};
+    use super::{Cli, chain, exit_status, start_path, write_diff};
     use clap::CommandFactory;
     use std::io::{self, ErrorKind, Write};
     use std::{env, fs, path::PathBuf};
@@ -184,6 +202,31 @@ mod tests {
     #[test]
     fn other_output_errors_exit_two() {
         assert_eq!(exit_status(false, &Err(ErrorKind::Other.into())), 2);
+    }
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("outer")]
+    struct Outer(#[source] Middle);
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("middle")]
+    struct Middle(#[source] io::Error);
+
+    #[test]
+    fn chain_includes_every_cause() {
+        let error = Outer(Middle(io::Error::other("inner")));
+        assert_eq!(chain(&error), "outer: middle: inner");
+    }
+
+    #[test]
+    fn chain_trims_trailing_newlines_from_multi_line_messages() {
+        let error = Middle(io::Error::other("line one\nline two\n"));
+        assert_eq!(chain(&error), "middle: line one\nline two");
+    }
+
+    #[test]
+    fn chain_of_an_error_without_a_source_is_its_message() {
+        assert_eq!(chain(&io::Error::other("alone")), "alone");
     }
 
     #[test]
