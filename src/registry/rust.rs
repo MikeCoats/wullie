@@ -19,21 +19,36 @@ struct IndexEntry {
     yanked: bool,
 }
 
+/// The longest crate name crates.io accepts.
+const MAX_NAME_LEN: usize = 64;
+
+/// Returns whether `name` is a name crates.io accepts: an ASCII letter followed
+/// by ASCII letters, digits, `-` or `_`, at most 64 characters long.
+///
+/// Names come from manifests that may be untrusted, and they become both URL
+/// and cache paths, so anything else is rejected before it reaches either.
+fn is_valid_name(name: &str) -> bool {
+    let mut bytes = name.bytes();
+    name.len() <= MAX_NAME_LEN
+        && bytes
+            .next()
+            .is_some_and(|first| first.is_ascii_alphabetic())
+        && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+}
+
 /// Returns a crate's path within the sparse index, e.g. `se/rd/serde`.
-pub fn index_path(name: &str) -> String {
+pub fn index_path(name: &str) -> Result<String, RegistryError> {
+    if !is_valid_name(name) {
+        return Err(RegistryError::invalid_name());
+    }
+    // Valid names are ASCII, so byte slicing is safe.
     let name = crate::project::Ecosystem::Rust.normalize_name(name);
-    let characters: Vec<_> = name.chars().collect();
-    match characters.len() {
-        0 => String::new(),
+    Ok(match name.len() {
         1 => format!("1/{name}"),
         2 => format!("2/{name}"),
-        3 => format!("3/{}/{name}", characters[0]),
-        _ => {
-            let first: String = characters.iter().take(2).copied().collect();
-            let second: String = characters.iter().skip(2).take(2).copied().collect();
-            format!("{first}/{second}/{name}")
-        }
-    }
+        3 => format!("3/{}/{name}", &name[..1]),
+        _ => format!("{}/{}/{name}", &name[..2], &name[2..4]),
+    })
 }
 
 /// Parses a sparse-index body, one JSON object per line.
@@ -56,10 +71,39 @@ mod tests {
 
     #[test]
     fn builds_crates_io_sparse_index_paths() {
-        assert_eq!(index_path("a"), "1/a");
-        assert_eq!(index_path("ab"), "2/ab");
-        assert_eq!(index_path("abc"), "3/a/abc");
-        assert_eq!(index_path("Serde"), "se/rd/serde");
+        assert_eq!(index_path("a").unwrap(), "1/a");
+        assert_eq!(index_path("ab").unwrap(), "2/ab");
+        assert_eq!(index_path("abc").unwrap(), "3/a/abc");
+        assert_eq!(index_path("Serde").unwrap(), "se/rd/serde");
+        assert_eq!(index_path("serde_json").unwrap(), "se/rd/serde_json");
+        assert_eq!(index_path("tokio-util").unwrap(), "to/ki/tokio-util");
+    }
+
+    #[test]
+    fn accepts_names_up_to_the_crates_io_length_limit() {
+        assert!(index_path(&"a".repeat(64)).is_ok());
+        assert!(index_path(&"a".repeat(65)).is_err());
+    }
+
+    #[test]
+    fn rejects_names_crates_io_would_not_accept() {
+        for name in [
+            "",
+            "../../../../se/rd/serde",
+            "se/rd",
+            "se\\rd",
+            ".hidden",
+            "1password",
+            "-leading",
+            "_leading",
+            "with space",
+            "dotted.name",
+            "nul\0byte",
+            "ünïcode",
+        ] {
+            let error = index_path(name).unwrap_err();
+            assert_eq!(error.to_string(), "invalid package name", "{name:?}");
+        }
     }
 
     #[test]

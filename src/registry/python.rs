@@ -71,9 +71,27 @@ impl Yanked {
     }
 }
 
+/// Returns whether `name` is a valid PEP 508 project name: ASCII letters and
+/// digits, optionally separated by `-`, `_` or `.`, starting and ending with a
+/// letter or digit.
+///
+/// Names come from manifests that may be untrusted, and they become both URL
+/// and cache paths, so anything else is rejected before it reaches either.
+fn is_valid_name(name: &str) -> bool {
+    let bytes = name.as_bytes();
+    bytes.first().is_some_and(u8::is_ascii_alphanumeric)
+        && bytes.last().is_some_and(u8::is_ascii_alphanumeric)
+        && bytes
+            .iter()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"-_.".contains(byte))
+}
+
 /// Returns a project's normalized path within PyPI's Simple API.
-pub fn index_path(name: &str) -> String {
-    Ecosystem::Python.normalize_name(name)
+pub fn index_path(name: &str) -> Result<String, RegistryError> {
+    if !is_valid_name(name) {
+        return Err(RegistryError::invalid_name());
+    }
+    Ok(Ecosystem::Python.normalize_name(name))
 }
 
 /// Builds the full PyPI Simple API URL for a normalized package path.
@@ -126,9 +144,30 @@ mod tests {
 
     #[test]
     fn normalizes_names_in_pypi_paths_and_builds_simple_api_urls() {
-        assert_eq!(index_path("Foo_Bar"), "foo-bar");
-        assert_eq!(index_path("foo.bar"), "foo-bar");
+        assert_eq!(index_path("Foo_Bar").unwrap(), "foo-bar");
+        assert_eq!(index_path("foo.bar").unwrap(), "foo-bar");
+        assert_eq!(index_path("zope.interface").unwrap(), "zope-interface");
+        assert_eq!(index_path("1password").unwrap(), "1password");
         assert_eq!(url("foo-bar"), "https://pypi.org/simple/foo-bar/");
+    }
+
+    #[test]
+    fn rejects_names_that_are_not_valid_pep_508_names() {
+        for name in [
+            "",
+            "..",
+            "../../etc",
+            "a/b",
+            "a\\b",
+            "-leading",
+            "trailing.",
+            "with space",
+            "nul\0byte",
+            "ünïcode",
+        ] {
+            let error = index_path(name).unwrap_err();
+            assert_eq!(error.to_string(), "invalid package name", "{name:?}");
+        }
     }
 
     #[test]

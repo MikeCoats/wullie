@@ -51,8 +51,8 @@ fn accept(ecosystem: Ecosystem) -> Option<&'static str> {
 /// A package's path within its ecosystem's index.
 fn index_path(ecosystem: Ecosystem, name: &str) -> Result<String, RegistryError> {
     match ecosystem {
-        Ecosystem::Rust => Ok(rust::index_path(name)),
-        Ecosystem::Python => Ok(python::index_path(name)),
+        Ecosystem::Rust => rust::index_path(name),
+        Ecosystem::Python => python::index_path(name),
         Ecosystem::JavaScript => Err(RegistryError::unsupported(ecosystem)),
     }
 }
@@ -151,6 +151,8 @@ pub struct RegistryError(RegistryErrorKind);
 enum RegistryErrorKind {
     #[error("package was not found in the registry")]
     NotFound,
+    #[error("invalid package name")]
+    InvalidName,
     #[error("no registry supports the {0} ecosystem yet")]
     Unsupported(Ecosystem),
     #[error("registry request failed")]
@@ -162,6 +164,10 @@ enum RegistryErrorKind {
 impl RegistryError {
     pub(crate) fn not_found() -> Self {
         Self(RegistryErrorKind::NotFound)
+    }
+
+    fn invalid_name() -> Self {
+        Self(RegistryErrorKind::InvalidName)
     }
 
     pub(crate) fn unsupported(ecosystem: Ecosystem) -> Self {
@@ -220,6 +226,25 @@ mod tests {
             error.to_string(),
             "no registry supports the javascript ecosystem yet"
         );
+    }
+
+    #[test]
+    fn invalid_names_are_rejected_before_the_cache_or_network() {
+        let temp = TempDir::new().unwrap();
+        let outside = temp.path().join("outside");
+        let cache_dir = temp.path().join("cache");
+        let cache = Cache::new(cache_dir, MAX_AGE);
+        let registry = HttpRegistry::new(Some(cache));
+
+        for (ecosystem, name) in [
+            (Ecosystem::Rust, "../../../outside/se/rd/serde"),
+            (Ecosystem::Python, "../outside"),
+        ] {
+            let error = registry.releases(ecosystem, name).unwrap_err();
+            assert_eq!(error.to_string(), "invalid package name");
+        }
+        assert!(!outside.exists());
+        assert!(registry.cache_write_error().is_none());
     }
 
     #[test]
