@@ -69,9 +69,12 @@ pub fn dependencies(contents: &str) -> Result<Vec<Dependency>, ParseError> {
     let document = contents.parse::<DocumentMut>().map_err(ParseError::toml)?;
     let mut dependencies = Vec::new();
 
-    for table in dependency_tables(&document).filter_map(Item::as_table_like) {
+    for (label, item) in dependency_tables(&document)? {
+        let table = item
+            .as_table_like()
+            .ok_or_else(|| ParseError::invalid_field(&label, "a table"))?;
         for (key, item) in table.iter() {
-            if let Some(dependency) = parse_dependency(key, item)? {
+            if let Some(dependency) = parse_dependency(&label, key, item)? {
                 dependencies.push(dependency);
             }
         }
@@ -86,18 +89,19 @@ pub fn pin(contents: &str, updates: &[Update]) -> Result<String, ParseError> {
 
     for (name, item) in document.iter_mut() {
         if TABLES.contains(&name.get()) {
-            pin_dependency_table(item, updates)?;
+            pin_dependency_table(name.get(), item, updates)?;
         }
     }
 
     if let Some(targets) = document.get_mut("target").and_then(Item::as_table_like_mut) {
-        for (_, target) in targets.iter_mut() {
+        for (spec, target) in targets.iter_mut() {
             let Some(target) = target.as_table_like_mut() else {
                 continue;
             };
             for (name, item) in target.iter_mut() {
                 if TABLES.contains(&name.get()) {
-                    pin_dependency_table(item, updates)?;
+                    let label = format!("target.{spec}.{name}");
+                    pin_dependency_table(&label, item, updates)?;
                 }
             }
         }
@@ -108,19 +112,23 @@ pub fn pin(contents: &str, updates: &[Update]) -> Result<String, ParseError> {
         .and_then(Item::as_table_like_mut)
         .and_then(|workspace| workspace.get_mut("dependencies"))
     {
-        pin_dependency_table(workspace_dependencies, updates)?;
+        pin_dependency_table("workspace.dependencies", workspace_dependencies, updates)?;
     }
 
     Ok(document.to_string())
 }
 
-fn pin_dependency_table(item: &mut Item, updates: &[Update]) -> Result<(), ParseError> {
+fn pin_dependency_table(
+    label: &str,
+    item: &mut Item,
+    updates: &[Update],
+) -> Result<(), ParseError> {
     let Some(table) = item.as_table_like_mut() else {
-        return Ok(());
+        return Err(ParseError::invalid_field(label, "a table"));
     };
 
     for (key, item) in table.iter_mut() {
-        let Some(dependency) = parse_dependency(key.get(), item)? else {
+        let Some(dependency) = parse_dependency(label, key.get(), item)? else {
             continue;
         };
         let Some(update) = updates.iter().find(|update| {
@@ -152,36 +160,70 @@ fn replace_requirement(item: &mut Item, requirement: &str) {
     value.decor_mut().clone_from(&decor);
 }
 
-/// Yields every dependency table Cargo reads: the top-level tables, then those
-/// under each `target.<spec>`, then `workspace.dependencies`.
-fn dependency_tables(document: &DocumentMut) -> impl Iterator<Item = &Item> {
-    let top_level = document
-        .iter()
-        .filter(|(name, _)| TABLES.contains(name))
-        .map(|(_, item)| item);
-    let targets = document
-        .get("target")
-        .and_then(Item::as_table_like)
-        .into_iter()
-        .flat_map(|targets| targets.iter())
-        .filter_map(|(_, target)| target.as_table_like())
-        .flat_map(|target| target.iter())
-        .filter(|(name, _)| TABLES.contains(name))
-        .map(|(_, item)| item);
-    let workspace = document
-        .get("workspace")
-        .and_then(Item::as_table_like)
-        .and_then(|workspace| workspace.get("dependencies"));
+/// Yields every dependency table Cargo reads, along with its manifest path.
+fn dependency_tables(document: &DocumentMut) -> Result<Vec<(String, &Item)>, ParseError> {
+    let mut tables = Vec::new();
 
-    top_level.chain(targets).chain(workspace)
+    for (name, item) in document.iter() {
+        if TABLES.contains(&name) {
+            tables.push((name.to_string(), item));
+        }
+    }
+
+    if let Some(targets_item) = document.get("target") {
+        let targets = targets_item
+            .as_table_like()
+            .ok_or_else(|| ParseError::invalid_field("target", "a table"))?;
+        for (spec, target_item) in targets.iter() {
+            let target = target_item
+                .as_table_like()
+                .ok_or_else(|| ParseError::invalid_field(format!("target.{spec}"), "a table"))?;
+            for (name, item) in target.iter() {
+                if TABLES.contains(&name) {
+                    tables.push((format!("target.{spec}.{name}"), item));
+                }
+            }
+        }
+    }
+
+    if let Some(workspace_item) = document.get("workspace") {
+        let workspace = workspace_item
+            .as_table_like()
+            .ok_or_else(|| ParseError::invalid_field("workspace", "a table"))?;
+        if let Some(item) = workspace.get("dependencies") {
+            tables.push(("workspace.dependencies".to_owned(), item));
+        }
+    }
+
+    Ok(tables)
 }
 
-fn parse_dependency(key: &str, item: &Item) -> Result<Option<Dependency>, ParseError> {
+fn parse_dependency(
+    table_label: &str,
+    key: &str,
+    item: &Item,
+) -> Result<Option<Dependency>, ParseError> {
+    let field = format!("{table_label}.{key}");
     let (name, requirement) = if let Some(requirement) = item.as_str() {
         (key, requirement)
     } else {
         let Some(table) = item.as_table_like() else {
-            return Ok(None);
+            return Err(ParseError::invalid_field(
+                field,
+                "a version string or table",
+            ));
+        };
+        let name = match table.get("package") {
+            Some(package) => package
+                .as_str()
+                .ok_or_else(|| ParseError::invalid_field(format!("{field}.package"), "a string"))?,
+            None => key,
+        };
+        let version = match table.get("version") {
+            Some(version) => Some(version.as_str().ok_or_else(|| {
+                ParseError::invalid_field(format!("{field}.version"), "a string")
+            })?),
+            None => None,
         };
         if table.get("workspace").and_then(Item::as_bool) == Some(true)
             || table.get("registry").is_some()
@@ -189,16 +231,12 @@ fn parse_dependency(key: &str, item: &Item) -> Result<Option<Dependency>, ParseE
         {
             return Ok(None);
         }
-        let Some(version) = table.get("version") else {
+        let Some(requirement) = version else {
             if table.get("path").is_some() || table.get("git").is_some() {
                 return Ok(None);
             }
             return Err(ParseError::missing_source(key));
         };
-        let Some(requirement) = version.as_str() else {
-            return Ok(None);
-        };
-        let name = table.get("package").and_then(Item::as_str).unwrap_or(key);
         (name, requirement)
     };
 
@@ -469,8 +507,6 @@ shared = "3"
                 workspace_inherited = { workspace = true }
                 path_only = { path = "../path" }
                 git_only = { git = "https://example.invalid/repo" }
-                non_string_version = { version = 1 }
-                non_string_requirement = 1
             "#,
         )
         .unwrap();
@@ -482,6 +518,34 @@ shared = "3"
                 dependency("git_with_version", "^2"),
             ]
         );
+    }
+
+    #[test]
+    fn reports_malformed_dependency_tables_and_entries() {
+        for (contents, expected) in [
+            ("dependencies = 1", "`dependencies` must be a table"),
+            (
+                "[dependencies]\ninvalid = 1",
+                "`dependencies.invalid` must be a version string or table",
+            ),
+            (
+                "[dependencies]\ninvalid = { version = 1 }",
+                "`dependencies.invalid.version` must be a string",
+            ),
+            (
+                "[dependencies]\ninvalid = { package = 1, version = \"1\" }",
+                "`dependencies.invalid.package` must be a string",
+            ),
+            ("[target]\nunix = 1", "`target.unix` must be a table"),
+            ("target = 1", "`target` must be a table"),
+            (
+                "[workspace]\ndependencies = 1",
+                "`workspace.dependencies` must be a table",
+            ),
+        ] {
+            let error = dependencies(contents).unwrap_err().to_string();
+            assert!(error.contains(expected), "{error}");
+        }
     }
 
     #[test]

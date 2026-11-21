@@ -110,6 +110,11 @@ pub struct ParseError(ParseErrorKind);
 enum ParseErrorKind {
     #[error(transparent)]
     Toml(toml_edit::TomlError),
+    #[error("`{field}` must be {expected}")]
+    InvalidField {
+        field: String,
+        expected: &'static str,
+    },
     #[error("dependency `{0}` has no version, path, git, or workspace source")]
     MissingSource(String),
 }
@@ -117,6 +122,13 @@ enum ParseErrorKind {
 impl ParseError {
     pub(crate) fn toml(source: toml_edit::TomlError) -> Self {
         Self(ParseErrorKind::Toml(source))
+    }
+
+    pub(crate) fn invalid_field(field: impl Into<String>, expected: &'static str) -> Self {
+        Self(ParseErrorKind::InvalidField {
+            field: field.into(),
+            expected,
+        })
     }
 
     pub(crate) fn missing_source(name: &str) -> Self {
@@ -171,6 +183,16 @@ mod tests {
         assert_eq!(
             StdError::source(&error).map(|source| source.to_string()),
             source
+        );
+    }
+
+    #[test]
+    fn invalid_field_error_describes_the_expected_shape() {
+        let error = ParseError::invalid_field("dependencies.example", "a string or table");
+
+        assert_eq!(
+            error.to_string(),
+            "`dependencies.example` must be a string or table"
         );
     }
 }

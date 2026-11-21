@@ -88,35 +88,46 @@ pub fn outdated(requirement: &str, releases: &[Release]) -> Result<Option<Outdat
 /// Parses Python dependency requirements from PEP 621 and PEP 735 tables.
 pub fn dependencies(contents: &str) -> Result<Vec<Dependency>, ParseError> {
     let document = contents.parse::<DocumentMut>().map_err(ParseError::toml)?;
-    let project = document.get("project").and_then(Item::as_table_like);
     let mut dependencies = Vec::new();
 
-    if let Some(array) = project
-        .and_then(|project| project.get("dependencies"))
-        .and_then(Item::as_array)
-    {
-        append_requirements(array, &mut dependencies);
+    let project = document
+        .get("project")
+        .map(|item| {
+            item.as_table_like()
+                .ok_or_else(|| ParseError::invalid_field("project", "a table"))
+        })
+        .transpose()?;
+
+    if let Some(item) = project.and_then(|project| project.get("dependencies")) {
+        let array = item
+            .as_array()
+            .ok_or_else(|| ParseError::invalid_field("project.dependencies", "an array"))?;
+        append_requirements(array, "project.dependencies", false, &mut dependencies)?;
     }
 
-    if let Some(optional) = project
-        .and_then(|project| project.get("optional-dependencies"))
-        .and_then(Item::as_table_like)
-    {
-        for (_, group) in optional.iter() {
-            if let Some(array) = group.as_array() {
-                append_requirements(array, &mut dependencies);
-            }
+    if let Some(item) = project.and_then(|project| project.get("optional-dependencies")) {
+        let optional = item
+            .as_table_like()
+            .ok_or_else(|| ParseError::invalid_field("project.optional-dependencies", "a table"))?;
+        for (name, group) in optional.iter() {
+            let label = format!("project.optional-dependencies.{name}");
+            let array = group
+                .as_array()
+                .ok_or_else(|| ParseError::invalid_field(&label, "an array"))?;
+            append_requirements(array, &label, false, &mut dependencies)?;
         }
     }
 
-    if let Some(groups) = document
-        .get("dependency-groups")
-        .and_then(Item::as_table_like)
-    {
-        for (_, group) in groups.iter() {
-            if let Some(array) = group.as_array() {
-                append_requirements(array, &mut dependencies);
-            }
+    if let Some(item) = document.get("dependency-groups") {
+        let groups = item
+            .as_table_like()
+            .ok_or_else(|| ParseError::invalid_field("dependency-groups", "a table"))?;
+        for (name, group) in groups.iter() {
+            let label = format!("dependency-groups.{name}");
+            let array = group
+                .as_array()
+                .ok_or_else(|| ParseError::invalid_field(&label, "an array"))?;
+            append_requirements(array, &label, true, &mut dependencies)?;
         }
     }
 
@@ -183,14 +194,44 @@ fn pin_requirements(array: &mut toml_edit::Array, updates: &[Update]) {
     }
 }
 
-fn append_requirements(array: &toml_edit::Array, dependencies: &mut Vec<Dependency>) {
-    dependencies.extend(
-        array
-            .iter()
-            .filter_map(|value| value.as_str())
-            .filter_map(parse_requirement)
-            .map(|parsed| parsed.dependency),
-    );
+fn append_requirements(
+    array: &toml_edit::Array,
+    label: &str,
+    allow_include_group: bool,
+    dependencies: &mut Vec<Dependency>,
+) -> Result<(), ParseError> {
+    for (index, value) in array.iter().enumerate() {
+        let field = format!("{label}[{index}]");
+        if let Some(requirement) = value.as_str() {
+            if let Some(parsed) = parse_requirement(requirement) {
+                dependencies.push(parsed.dependency);
+            }
+            continue;
+        }
+
+        if allow_include_group {
+            if let Some(include_group) = value.as_inline_table() {
+                if let Some(group) = include_group.get("include-group") {
+                    if group.as_str().is_some() {
+                        continue;
+                    }
+                    return Err(ParseError::invalid_field(
+                        format!("{field}.include-group"),
+                        "a string",
+                    ));
+                }
+            }
+        }
+
+        let expected = if allow_include_group {
+            "a string or include-group table"
+        } else {
+            "a string"
+        };
+        return Err(ParseError::invalid_field(field, expected));
+    }
+
+    Ok(())
 }
 
 struct ParsedRequirement {
@@ -453,6 +494,48 @@ mod tests {
                 Dependency::new("ruff", ">=0.1"),
             ]
         );
+    }
+
+    #[test]
+    fn reports_malformed_dependency_tables_and_entries() {
+        for (contents, expected) in [
+            ("project = 1", "`project` must be a table"),
+            (
+                "[project]\ndependencies = 1",
+                "`project.dependencies` must be an array",
+            ),
+            (
+                "[project]\noptional-dependencies = 1",
+                "`project.optional-dependencies` must be a table",
+            ),
+            (
+                "[project.optional-dependencies]\ntest = 1",
+                "`project.optional-dependencies.test` must be an array",
+            ),
+            (
+                "[project]\ndependencies = [1]",
+                "`project.dependencies[0]` must be a string",
+            ),
+            (
+                "dependency-groups = 1",
+                "`dependency-groups` must be a table",
+            ),
+            (
+                "[dependency-groups]\ndev = 1",
+                "`dependency-groups.dev` must be an array",
+            ),
+            (
+                "[dependency-groups]\ndev = [1]",
+                "`dependency-groups.dev[0]` must be a string or include-group table",
+            ),
+            (
+                "[dependency-groups]\ndev = [{ include-group = 1 }]",
+                "`dependency-groups.dev[0].include-group` must be a string",
+            ),
+        ] {
+            let error = dependencies(contents).unwrap_err().to_string();
+            assert!(error.contains(expected), "{error}");
+        }
     }
 
     #[test]

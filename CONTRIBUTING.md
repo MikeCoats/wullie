@@ -44,6 +44,8 @@ Wullie represents dependency declarations as one list without separating normal,
 Development dependencies can be an attack path, and optional dependencies may receive less testing while still affecting live deployments.
 Ecosystems also divide dependencies differently, so the shared dependency model does not encode those categories.
 
+Malformed dependency sections or entries produce a warning, and Wullie skips the entire manifest rather than reporting a partial dependency list.
+
 ## Version Requirements
 
 The Update Finder treats a dependency as outdated when the lowest published, non-yanked release matching its requirement is older than the newest non-yanked release.
