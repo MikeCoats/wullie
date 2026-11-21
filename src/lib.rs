@@ -435,11 +435,12 @@ mod tests {
     }
 
     #[test]
-    fn parses_python_dependencies_and_reports_invalid_toml() {
+    fn parses_python_and_javascript_dependencies_and_reports_invalid_manifests() {
         let temp = TempDir::new().unwrap();
         let python_manifest = temp.path().join("valid/pyproject.toml");
         let invalid_python_manifest = temp.path().join("invalid/pyproject.toml");
-        let javascript_manifest = temp.path().join("package.json");
+        let javascript_manifest = temp.path().join("valid/package.json");
+        let invalid_javascript_manifest = temp.path().join("invalid/package.json");
         fs::create_dir_all(python_manifest.parent().unwrap()).unwrap();
         fs::write(
             &python_manifest,
@@ -448,24 +449,39 @@ mod tests {
         .unwrap();
         fs::create_dir_all(invalid_python_manifest.parent().unwrap()).unwrap();
         fs::write(&invalid_python_manifest, "[project\ndependencies = [").unwrap();
-        fs::write(&javascript_manifest, "invalid json").unwrap();
+        fs::write(&javascript_manifest, r#"{"dependencies":{"left-pad":"^1","renamed":"npm:real-package@2"},"devDependencies":{"left-pad":"^1","test-package":"latest"}}"#).unwrap();
+        fs::write(&invalid_javascript_manifest, "invalid json").unwrap();
 
         let findings = find_dependencies(&[
             project(Ecosystem::Python, &invalid_python_manifest),
+            project(Ecosystem::JavaScript, &invalid_javascript_manifest),
             project(Ecosystem::JavaScript, &javascript_manifest),
             project(Ecosystem::Python, &python_manifest),
         ]);
 
         assert!(matches!(
             findings.errors.as_slice(),
-            [ManifestError::Parse { path, .. }] if path == &invalid_python_manifest
+            [
+                ManifestError::Parse { path: python_path, .. },
+                ManifestError::Parse { path: javascript_path, .. }
+            ] if python_path == &invalid_python_manifest && javascript_path == &invalid_javascript_manifest
         ));
         assert_eq!(
             findings.projects,
-            vec![ProjectDependencies {
-                project: project(Ecosystem::Python, &python_manifest),
-                dependencies: vec![Dependency::new("requests", ">=2.31")],
-            }]
+            vec![
+                ProjectDependencies {
+                    project: project(Ecosystem::JavaScript, &javascript_manifest),
+                    dependencies: vec![
+                        Dependency::new("left-pad", "^1"),
+                        Dependency::new("real-package", "2"),
+                        Dependency::new("test-package", "latest"),
+                    ],
+                },
+                ProjectDependencies {
+                    project: project(Ecosystem::Python, &python_manifest),
+                    dependencies: vec![Dependency::new("requests", ">=2.31")],
+                },
+            ]
         );
     }
 

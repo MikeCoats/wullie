@@ -110,6 +110,8 @@ pub struct ParseError(ParseErrorKind);
 enum ParseErrorKind {
     #[error(transparent)]
     Toml(toml_edit::TomlError),
+    #[error(transparent)]
+    Json(serde_json::Error),
     #[error("`{field}` must be {expected}")]
     InvalidField {
         field: String,
@@ -122,6 +124,10 @@ enum ParseErrorKind {
 impl ParseError {
     pub(crate) fn toml(source: toml_edit::TomlError) -> Self {
         Self(ParseErrorKind::Toml(source))
+    }
+
+    pub(crate) fn json(source: serde_json::Error) -> Self {
+        Self(ParseErrorKind::Json(source))
     }
 
     pub(crate) fn invalid_field(field: impl Into<String>, expected: &'static str) -> Self {

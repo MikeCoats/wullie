@@ -59,7 +59,7 @@ impl Ecosystem {
         match self {
             Self::Rust => rust::dependencies(contents),
             Self::Python => python::dependencies(contents),
-            Self::JavaScript => Ok(Vec::new()),
+            Self::JavaScript => javascript::dependencies(contents),
         }
     }
 
@@ -197,13 +197,14 @@ mod tests {
     }
 
     #[test]
-    fn javascript_has_no_dependencies() {
-        assert!(
+    fn javascript_dispatches_dependency_parsing_and_json_errors() {
+        assert_eq!(
             Ecosystem::JavaScript
-                .dependencies("invalid toml")
-                .unwrap()
-                .is_empty()
+                .dependencies(r#"{"dependencies":{"example":"^1"}}"#)
+                .unwrap(),
+            vec![crate::dependency::Dependency::new("example", "^1")]
         );
+        assert!(Ecosystem::JavaScript.dependencies("invalid json").is_err());
     }
 
     #[test]
