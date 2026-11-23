@@ -77,9 +77,6 @@ pub fn find_updates(projects: &[ProjectDependencies], registry: &dyn Registry) -
 
     for project in projects {
         let ecosystem = project.project.ecosystem();
-        if !ecosystem.has_registry() {
-            continue;
-        }
         let mut updates = Vec::new();
 
         for dependency in &project.dependencies {
@@ -140,6 +137,8 @@ enum CompareErrorKind {
     InvalidRequirement(#[source] semver::Error),
     #[error("invalid version requirement")]
     InvalidPythonRequirement(#[source] pep440_rs::VersionSpecifiersParseError),
+    #[error("invalid version requirement")]
+    InvalidJavaScriptRequirement(#[source] nodejs_semver::SemverError),
     #[error("no non-yanked release matches the requirement")]
     NoMatchingRelease,
 }
@@ -153,6 +152,10 @@ impl CompareError {
         source: pep440_rs::VersionSpecifiersParseError,
     ) -> Self {
         Self(CompareErrorKind::InvalidPythonRequirement(source))
+    }
+
+    pub(crate) fn invalid_javascript_requirement(source: nodejs_semver::SemverError) -> Self {
+        Self(CompareErrorKind::InvalidJavaScriptRequirement(source))
     }
 
     pub(crate) fn no_matching_release() -> Self {
@@ -316,18 +319,30 @@ mod tests {
     }
 
     #[test]
-    fn skips_javascript_projects_without_a_supported_registry() {
-        let registry = FakeRegistry::default();
-        let projects = vec![ProjectDependencies {
-            project: project_for(Ecosystem::JavaScript, "/javascript/package.json"),
-            dependencies: vec![Dependency::new("lodash", "^4.17")],
-        }];
+    fn javascript_requirements_follow_npm_range_rules() {
+        let mut registry = FakeRegistry::default();
+        registry.set_releases(
+            Ecosystem::JavaScript,
+            "lodash",
+            &[("4.17.0", false), ("4.17.21", false)],
+        );
+        let projects = vec![project_dependencies_for(
+            Ecosystem::JavaScript,
+            "/javascript/package.json",
+            &[("lodash", "4.17.0"), ("lodash", "4.17.21")],
+        )];
 
         let findings = find_updates(&projects, &registry);
 
-        assert!(findings.projects.is_empty());
         assert!(findings.errors.is_empty());
-        assert_eq!(registry.calls(Ecosystem::JavaScript, "lodash"), 0);
+        assert_eq!(registry.calls(Ecosystem::JavaScript, "lodash"), 1);
+        assert_eq!(
+            findings.projects,
+            vec![ProjectUpdates {
+                project: project_for(Ecosystem::JavaScript, "/javascript/package.json"),
+                updates: vec![update("lodash", "4.17.0", "4.17.0", "4.17.21")],
+            }]
+        );
     }
 
     #[test]
@@ -383,12 +398,22 @@ mod tests {
             "shared",
             &[("1.0", false), ("1.2", false)],
         );
+        registry.set_releases(
+            Ecosystem::JavaScript,
+            "shared",
+            &[("1.0.0", false), ("1.2.0", false)],
+        );
         let projects = vec![
             project_dependencies("/rust/Cargo.toml", &[("shared", "*")]),
             project_dependencies_for(
                 Ecosystem::Python,
                 "/python/pyproject.toml",
                 &[("shared", "")],
+            ),
+            project_dependencies_for(
+                Ecosystem::JavaScript,
+                "/javascript/package.json",
+                &[("shared", "^1")],
             ),
         ];
 
@@ -397,7 +422,8 @@ mod tests {
         assert!(findings.errors.is_empty());
         assert_eq!(registry.calls(Ecosystem::Rust, "shared"), 1);
         assert_eq!(registry.calls(Ecosystem::Python, "shared"), 1);
-        assert_eq!(findings.projects.len(), 2);
+        assert_eq!(registry.calls(Ecosystem::JavaScript, "shared"), 1);
+        assert_eq!(findings.projects.len(), 3);
     }
 
     #[test]

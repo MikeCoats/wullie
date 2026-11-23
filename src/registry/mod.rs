@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 mod cache;
+mod javascript;
 mod python;
 mod rust;
 
@@ -36,15 +37,16 @@ fn url(ecosystem: Ecosystem, path: &str) -> Result<String, RegistryError> {
     match ecosystem {
         Ecosystem::Rust => Ok(rust::url(path)),
         Ecosystem::Python => Ok(python::url(path)),
-        Ecosystem::JavaScript => Err(RegistryError::unsupported(ecosystem)),
+        Ecosystem::JavaScript => Ok(javascript::url(path)),
     }
 }
 
 /// Returns the ecosystem-specific request media type, if one is needed.
 fn accept(ecosystem: Ecosystem) -> Option<&'static str> {
     match ecosystem {
-        Ecosystem::Rust | Ecosystem::JavaScript => None,
+        Ecosystem::Rust => None,
         Ecosystem::Python => Some(python::ACCEPT),
+        Ecosystem::JavaScript => Some(javascript::ACCEPT),
     }
 }
 
@@ -53,7 +55,7 @@ fn index_path(ecosystem: Ecosystem, name: &str) -> Result<String, RegistryError>
     match ecosystem {
         Ecosystem::Rust => rust::index_path(name),
         Ecosystem::Python => python::index_path(name),
-        Ecosystem::JavaScript => Err(RegistryError::unsupported(ecosystem)),
+        Ecosystem::JavaScript => javascript::index_path(name),
     }
 }
 
@@ -62,7 +64,7 @@ fn parse_index(ecosystem: Ecosystem, body: &str) -> Result<Vec<Release>, Registr
     match ecosystem {
         Ecosystem::Rust => rust::parse_index(body),
         Ecosystem::Python => python::parse_index(body),
-        Ecosystem::JavaScript => Err(RegistryError::unsupported(ecosystem)),
+        Ecosystem::JavaScript => javascript::parse_index(body),
     }
 }
 
@@ -153,8 +155,6 @@ enum RegistryErrorKind {
     NotFound,
     #[error("invalid package name")]
     InvalidName,
-    #[error("no registry supports the {0} ecosystem yet")]
-    Unsupported(Ecosystem),
     #[error("registry request failed")]
     Http(#[source] ureq::Error),
     #[error("cannot parse registry index data")]
@@ -168,10 +168,6 @@ impl RegistryError {
 
     fn invalid_name() -> Self {
         Self(RegistryErrorKind::InvalidName)
-    }
-
-    pub(crate) fn unsupported(ecosystem: Ecosystem) -> Self {
-        Self(RegistryErrorKind::Unsupported(ecosystem))
     }
 
     fn http(source: ureq::Error) -> Self {
@@ -217,14 +213,18 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_ecosystems_have_no_registry() {
-        let registry = HttpRegistry::new(None);
-        let error = registry
-            .releases(Ecosystem::JavaScript, "requests")
-            .unwrap_err();
+    fn javascript_dispatches_to_npm_registry_rules() {
         assert_eq!(
-            error.to_string(),
-            "no registry supports the javascript ecosystem yet"
+            index_path(Ecosystem::JavaScript, "@types/node").unwrap(),
+            "@types/node"
+        );
+        assert_eq!(
+            url(Ecosystem::JavaScript, "@types/node").unwrap(),
+            "https://registry.npmjs.org/@types%2fnode"
+        );
+        assert_eq!(
+            accept(Ecosystem::JavaScript),
+            Some("application/vnd.npm.install-v1+json")
         );
     }
 
@@ -239,6 +239,8 @@ mod tests {
         for (ecosystem, name) in [
             (Ecosystem::Rust, "../../../outside/se/rd/serde"),
             (Ecosystem::Python, "../outside"),
+            (Ecosystem::JavaScript, "../outside"),
+            (Ecosystem::JavaScript, "@scope/../../outside"),
         ] {
             let error = registry.releases(ecosystem, name).unwrap_err();
             assert_eq!(error.to_string(), "invalid package name");
@@ -263,6 +265,29 @@ mod tests {
             registry.releases(Ecosystem::Rust, "Serde").unwrap(),
             vec![Release {
                 version: "1.0.0".to_owned(),
+                yanked: false,
+            }]
+        );
+    }
+
+    #[test]
+    fn scoped_javascript_packages_are_cached_under_their_scope() {
+        let temp = TempDir::new().unwrap();
+        let cache = Cache::new(temp.path().to_path_buf(), MAX_AGE);
+        cache
+            .put(
+                Path::new("javascript/@types/node"),
+                r#"{"versions":{"22.0.0":{}}}"#,
+            )
+            .unwrap();
+        let registry = HttpRegistry::new(Some(cache));
+
+        assert_eq!(
+            registry
+                .releases(Ecosystem::JavaScript, "@types/node")
+                .unwrap(),
+            vec![Release {
+                version: "22.0.0".to_owned(),
                 yanked: false,
             }]
         );

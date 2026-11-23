@@ -40,6 +40,9 @@ Rust dependencies that specify `registry` or `registry-index` are omitted, so pr
 For Python packages, `wullie` checks the PyPI Simple API at `https://pypi.org/simple`.
 Python dependencies with declared extras and environment markers are retained.
 
+For JavaScript packages, `wullie` checks the npm registry at `https://registry.npmjs.org`.
+JavaScript dependencies on local paths, git repositories, URLs or workspaces are omitted, and `npm:` aliases are checked under the package they point to.
+
 `wullie`'s scanner respects standard ignore files and hidden directories, and skips `target/`, `__pycache__/`, `__pypackages__/`, `site-packages/`, `node_modules/` and `bower_components/` directories.
 
 ## Contributing

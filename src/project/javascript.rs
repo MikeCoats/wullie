@@ -5,11 +5,14 @@ use std::ffi::OsStr;
 use std::fmt;
 
 use indexmap::IndexMap;
+use nodejs_semver::{Range, Version};
 use serde::de::value::MapAccessDeserializer;
 use serde::de::{MapAccess, Visitor};
 use serde::{Deserialize, Deserializer};
 
 use crate::dependency::{Dependency, ParseError};
+use crate::registry::Release;
+use crate::update::{CompareError, Outdated};
 
 /// Directories holding installed dependencies rather than projects.
 /// Every directory with one of these names is pruned, including ones in
@@ -24,6 +27,62 @@ pub fn is_manifest(file_name: &OsStr) -> bool {
 /// Leaves JavaScript package names unchanged.
 pub fn normalize_name(name: &str) -> String {
     name.to_owned()
+}
+
+/// Compares an npm requirement with published releases, using npm's range rules.
+///
+/// A requirement that is not a range but is a valid dist-tag, such as
+/// `latest`, names no version, so it is treated like `*`.
+pub fn outdated(requirement: &str, releases: &[Release]) -> Result<Option<Outdated>, CompareError> {
+    let range = match Range::parse(requirement) {
+        Ok(range) => range,
+        Err(_) if is_dist_tag(requirement) => Range::any(),
+        Err(source) => return Err(CompareError::invalid_javascript_requirement(source)),
+    };
+    let versions: Vec<_> = releases
+        .iter()
+        .filter(|release| !release.yanked)
+        .filter_map(|release| {
+            Version::parse(&release.version)
+                .ok()
+                .map(|version| (version, release.version.as_str()))
+        })
+        .collect();
+    // npm ranges only match a pre-release when one of their comparators names
+    // a pre-release of the same version, so a matching pre-release means the
+    // requirement names one.
+    let includes_prereleases = versions
+        .iter()
+        .any(|(version, _)| version.is_prerelease() && range.satisfies(version));
+    let lowest = versions
+        .iter()
+        .filter(|(version, _)| range.satisfies(version))
+        .min_by(|(left, _), (right, _)| left.cmp(right))
+        .ok_or_else(CompareError::no_matching_release)?;
+    let latest = versions
+        .iter()
+        .filter(|(version, _)| includes_prereleases || !version.is_prerelease())
+        .max_by(|(left, _), (right, _)| left.cmp(right))
+        .ok_or_else(CompareError::no_matching_release)?;
+
+    if lowest.0 < latest.0 {
+        Ok(Some(Outdated {
+            lowest: lowest.1.to_owned(),
+            latest: latest.1.to_owned(),
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Returns whether `requirement` could be a dist-tag: npm requires tags to be
+/// URL-safe, and this accepts the conventional ASCII letters, digits, `-`, `.`
+/// and `_`.
+fn is_dist_tag(requirement: &str) -> bool {
+    !requirement.is_empty()
+        && requirement
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"-._".contains(&byte))
 }
 
 #[derive(Deserialize, Default)]
@@ -136,8 +195,24 @@ mod tests {
     use std::ffi::OsStr;
 
     use crate::dependency::Dependency;
+    use crate::registry::Release;
+    use crate::update::Outdated;
 
-    use super::{dependencies, is_manifest, parse_requirement};
+    use super::{dependencies, is_manifest, outdated, parse_requirement};
+
+    fn release(version: &str, yanked: bool) -> Release {
+        Release {
+            version: version.to_owned(),
+            yanked,
+        }
+    }
+
+    fn outdated_versions(lowest: &str, latest: &str) -> Option<Outdated> {
+        Some(Outdated {
+            lowest: lowest.to_owned(),
+            latest: latest.to_owned(),
+        })
+    }
 
     #[test]
     fn detects_package_json_manifest() {
@@ -260,6 +335,150 @@ mod tests {
             dependencies(r#"{"name": "empty-package", "version": "1.0.0"}"#)
                 .unwrap()
                 .is_empty()
+        );
+    }
+
+    #[test]
+    fn reports_lowest_matching_release_and_latest_for_a_caret_range() {
+        assert_eq!(
+            outdated(
+                "^1.2",
+                &[
+                    release("1.1.0", false),
+                    release("1.2.0", false),
+                    release("1.9.0", false),
+                ]
+            )
+            .unwrap(),
+            outdated_versions("1.2.0", "1.9.0")
+        );
+    }
+
+    #[test]
+    fn a_bare_version_is_an_exact_requirement_unlike_cargo() {
+        assert_eq!(
+            outdated("1.2.0", &[release("1.2.0", false), release("1.2.1", false)]).unwrap(),
+            outdated_versions("1.2.0", "1.2.1")
+        );
+        assert_eq!(
+            outdated("1.2.1", &[release("1.2.0", false), release("1.2.1", false)]).unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn does_not_report_an_exact_current_pin() {
+        assert_eq!(
+            outdated(
+                "=1.9.0",
+                &[release("1.5.0", false), release("1.9.0", false)]
+            )
+            .unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn applies_npm_tilde_x_range_hyphen_and_or_rules() {
+        let releases = [
+            release("1.2.0", false),
+            release("1.2.5", false),
+            release("1.3.0", false),
+            release("2.0.0", false),
+            release("3.0.0", false),
+        ];
+
+        assert_eq!(
+            outdated("~1.2.3", &releases).unwrap(),
+            outdated_versions("1.2.5", "3.0.0")
+        );
+        assert_eq!(
+            outdated("1.3.x", &releases).unwrap(),
+            outdated_versions("1.3.0", "3.0.0")
+        );
+        assert_eq!(
+            outdated(">=1.2.1 <2", &releases).unwrap(),
+            outdated_versions("1.2.5", "3.0.0")
+        );
+        assert_eq!(
+            outdated("2.0.0 - 3.0.0", &releases).unwrap(),
+            outdated_versions("2.0.0", "3.0.0")
+        );
+        assert_eq!(
+            outdated("^3 || ^2", &releases).unwrap(),
+            outdated_versions("2.0.0", "3.0.0")
+        );
+    }
+
+    #[test]
+    fn an_unspecified_version_or_dist_tag_matches_every_stable_release() {
+        let releases = [
+            release("0.9.0", true),
+            release("not-a-version", false),
+            release("1.0.0-rc.1", false),
+            release("1.0.0", false),
+            release("1.1.0", false),
+            release("2.0.0-beta.1", false),
+        ];
+
+        for requirement in ["", "*", "x", "latest", "next"] {
+            assert_eq!(
+                outdated(requirement, &releases).unwrap(),
+                outdated_versions("1.0.0", "1.1.0"),
+                "{requirement:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn ignores_yanked_releases_for_lowest_and_latest() {
+        assert_eq!(
+            outdated(
+                "^1",
+                &[
+                    release("1.0.0", true),
+                    release("1.0.1", false),
+                    release("1.5.0", false),
+                    release("2.0.0", true),
+                ]
+            )
+            .unwrap(),
+            outdated_versions("1.0.1", "1.5.0")
+        );
+    }
+
+    #[test]
+    fn requirements_naming_a_prerelease_include_prereleases_in_latest() {
+        let releases = [
+            release("2.0.0-rc.1", false),
+            release("2.0.0-rc.2", false),
+            release("2.1.0-beta.1", false),
+        ];
+
+        assert_eq!(
+            outdated("=2.0.0-rc.2", &releases).unwrap(),
+            outdated_versions("2.0.0-rc.2", "2.1.0-beta.1")
+        );
+        assert_eq!(
+            outdated(
+                "^2.0.0-rc.1",
+                &[release("2.0.0-rc.1", false), release("2.0.0", false)]
+            )
+            .unwrap(),
+            outdated_versions("2.0.0-rc.1", "2.0.0")
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_requirements_and_missing_matches() {
+        let invalid = outdated(">>2", &[release("2.0.0", false)]).unwrap_err();
+        assert_eq!(invalid.to_string(), "invalid version requirement");
+
+        let no_match =
+            outdated("^2", &[release("1.9.0", false), release("2.0.0", true)]).unwrap_err();
+        assert_eq!(
+            no_match.to_string(),
+            "no non-yanked release matches the requirement"
         );
     }
 }

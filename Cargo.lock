@@ -384,6 +384,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "nodejs-semver"
+version = "7.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "938185814d480ac0eff0ac4676d27deef920cbd2b83df83603a873af5b7c8fc9"
+dependencies = [
+ "smallvec",
+ "thiserror",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -594,6 +604,12 @@ checksum = "d2f8bec09ae8fae0f4f265a4559a9334be3929d8504e9b536df0a41302bd1733"
 dependencies = [
  "bstr",
 ]
+
+[[package]]
+name = "smallvec"
+version = "1.16.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3244542535d5de959d90ec55d1b5ff0fd2bb7b1310223907d5f11932847f7b59"
 
 [[package]]
 name = "strsim"
@@ -925,6 +941,7 @@ dependencies = [
  "etcetera",
  "ignore",
  "indexmap",
+ "nodejs-semver",
  "pep440_rs",
  "semver",
  "serde",

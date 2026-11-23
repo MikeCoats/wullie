@@ -51,12 +51,17 @@ Malformed dependency sections or entries produce a warning, and Wullie skips the
 The Update Finder treats a dependency as outdated when the lowest published, non-yanked release matching its requirement is older than the newest non-yanked release.
 It does not treat a range as current just because that range also permits the latest release.
 Pre-releases and Python development releases are ignored unless the requirement names a pre-release or development release.
+Deprecated npm versions count as yanked, since the author has asked that they no longer be used.
 Semver and PEP 440 ranges are convenient during development, but they can admit untested or vulnerable in-between releases.
-A fully specified exact requirement such as Cargo's `=1.2.3` or Python's `==1.2.3` is the most robust choice from an SBOM perspective because it identifies one version rather than a range.
+A fully specified exact requirement such as Cargo's `=1.2.3`, Python's `==1.2.3` or npm's `1.2.3` is the most robust choice from an SBOM perspective because it identifies one version rather than a range.
 
 Across every ecosystem, an unspecified version is out of date.
 Cargo's `*` matches every stable release, so its lowest matching release is the oldest one, and it is reported until it is pinned.
 A bare Python name has an empty requirement and matches every release, so it is reported until pinned.
+An npm `*`, `x` or empty requirement is treated the same way, and so is a dist-tag such as `latest`, because a tag names whatever version it points to today rather than a version.
+
+Requirements are compared using each ecosystem's own rules, so the same string can mean different things.
+A bare `1.2.3` is a caret requirement in Cargo but an exact version in npm.
 
 ## Diff Maker
 
@@ -71,8 +76,7 @@ The Diff Maker never updates lock files, so regenerate `Cargo.lock`, `uv.lock` o
 
 ## Registry
 
-`Registry` is a trait because registry clients are an open set, including crates.io and PyPI now and possible JavaScript registries later.
-The trait also lets tests use a fake registry without making network requests.
+`Registry` is a trait because registry clients are an open set, including crates.io, PyPI and npm whilst also letting tests use a fake registry without making network requests.
 `Ecosystem` remains an enum because the supported ecosystems are a closed set, and exhaustive matches ensure each ecosystem handles every pipeline stage.
 
 ### Look-up Cache

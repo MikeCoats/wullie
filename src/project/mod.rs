@@ -63,11 +63,6 @@ impl Ecosystem {
         }
     }
 
-    /// Returns whether this ecosystem has a registry supported by the update finder.
-    pub fn has_registry(self) -> bool {
-        matches!(self, Self::Rust | Self::Python)
-    }
-
     /// Returns outdated-version details for a requirement and its releases.
     pub fn outdated(
         self,
@@ -77,7 +72,7 @@ impl Ecosystem {
         match self {
             Self::Rust => rust::outdated(requirement, releases),
             Self::Python => python::outdated(requirement, releases),
-            Self::JavaScript => Ok(None),
+            Self::JavaScript => javascript::outdated(requirement, releases),
         }
     }
 
@@ -136,6 +131,8 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use strum::IntoEnumIterator;
+
+    use crate::update::Outdated;
 
     use super::{Ecosystem, Project};
 
@@ -208,10 +205,25 @@ mod tests {
     }
 
     #[test]
-    fn rust_and_python_have_supported_registries() {
-        assert!(Ecosystem::Rust.has_registry());
-        assert!(Ecosystem::Python.has_registry());
-        assert!(!Ecosystem::JavaScript.has_registry());
+    fn javascript_dispatches_outdated_checks_to_its_module() {
+        let releases = [
+            crate::registry::Release {
+                version: "1.0.0".to_owned(),
+                yanked: false,
+            },
+            crate::registry::Release {
+                version: "1.2.0".to_owned(),
+                yanked: false,
+            },
+        ];
+
+        assert_eq!(
+            Ecosystem::JavaScript.outdated("1.0.0", &releases).unwrap(),
+            Some(Outdated {
+                lowest: "1.0.0".to_owned(),
+                latest: "1.2.0".to_owned(),
+            })
+        );
     }
 
     #[test]
