@@ -22,12 +22,13 @@ SPDX-License-Identifier: GPL-3.0-or-later
   - [x] Rust Support
   - [x] Python Support
   - [ ] JavaScript Support
+- [ ] Bugs and Features
+  - [ ] IPv6 Happy Eyeballs
 - [ ] Package
   - [x] As a tar.gz
   - [x] As a runnable crate
   - [ ] As a dpkg
 - [ ] Repos
-  - [ ] Codeberg
   - [x] GitHub
   - [x] GH Actions CI/CD
     - [x] Linux x64
@@ -36,6 +37,9 @@ SPDX-License-Identifier: GPL-3.0-or-later
     - [ ] Windows x64
     - [ ] Linux MUSL
     - [ ] Mac x64
+  - [ ] Codeberg
+    - [ ] Repo
+    - [ ] Repo mirroring
 - [ ] Docs
   - [ ] `--help`
   - [ ] Webpage
