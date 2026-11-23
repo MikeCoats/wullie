@@ -71,6 +71,7 @@ The diff on stdout contains every change across every project, so stderr carries
 
 The Diff Maker replaces every range (caret, tilde, wildcard, comparison, dist-tag or bare name) with an exact pin of the newest non-yanked release: `=x.y.z` for Cargo, `==x.y.z` for Python, and a bare `x.y.z` for npm.
 It pins to the newest release even when that crosses a major version, and drops other bounds and exclusions such as `<3` or `!=2.1.0`.
+Cargo pins drop any build metadata, so `0.25.20+spec-1.1.0` is pinned as `=0.25.20`, because Cargo ignores and warns about metadata in requirements and crates.io never publishes two versions that differ only by it.
 
 The Diff Maker never updates lock files, so regenerate `Cargo.lock`, `uv.lock`, `package-lock.json` or the equivalent after applying a diff.
 
