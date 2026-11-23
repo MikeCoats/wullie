@@ -18,10 +18,10 @@ SPDX-License-Identifier: GPL-3.0-or-later
   - [x] Rust Support
   - [x] Python Support
   - [x] JavaScript Support
-- [ ] Diff Maker
+- [x] Diff Maker
   - [x] Rust Support
   - [x] Python Support
-  - [ ] JavaScript Support
+  - [x] JavaScript Support
 - [ ] Bugs and Features
   - [ ] IPv6 Happy Eyeballs
 - [ ] Package

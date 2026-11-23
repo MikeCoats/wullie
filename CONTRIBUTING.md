@@ -67,12 +67,12 @@ A bare `1.2.3` is a caret requirement in Cargo but an exact version in npm.
 
 The Diff Maker prints one combined unified diff to stdout.
 The paths in the diff are relative to the starting `PATH`.
-The diff already every change across every project, so stderr carries only warnings and errors.
+The diff on stdout contains every change across every project, so stderr carries our warnings and errors.
 
-The Diff Maker replaces every range (caret, tilde, wildcard, comparison or bare name) with an exact pin of the newest non-yanked release: `=x.y.z` for Cargo, `==x.y.z` for Python.
-For Python requirements, extras, environment markers and surrounding TOML comments are retained when the version specifier is replaced.
+The Diff Maker replaces every range (caret, tilde, wildcard, comparison, dist-tag or bare name) with an exact pin of the newest non-yanked release: `=x.y.z` for Cargo, `==x.y.z` for Python, and a bare `x.y.z` for npm.
 It pins to the newest release even when that crosses a major version, and drops other bounds and exclusions such as `<3` or `!=2.1.0`.
-The Diff Maker never updates lock files, so regenerate `Cargo.lock`, `uv.lock` or the equivalent after applying a diff.
+
+The Diff Maker never updates lock files, so regenerate `Cargo.lock`, `uv.lock`, `package-lock.json` or the equivalent after applying a diff.
 
 ## Registry
 

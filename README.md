@@ -19,7 +19,7 @@ Lockfiles seek to address this gap, but hide it behind separate commands or sour
 
 Run `wullie [PATH]` to find out-of-date dependencies and generate a `git apply`-ible patch with the latest updates.
 
-Applying a dependency diff does not install and update packages or update lock files; remember to regenerate and recommit `Cargo.lock`, `uv.lock` or the equivalent afterward.
+Applying a dependency diff does not install and update packages or update lock files; remember to regenerate and recommit `Cargo.lock`, `uv.lock`, `package-lock.json` or the equivalent afterward.
 
 Wullie recursively searches for supported project manifests:
 

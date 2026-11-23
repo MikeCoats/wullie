@@ -3,16 +3,17 @@
 
 use std::ffi::OsStr;
 use std::fmt;
+use std::ops::Range as Span;
 
 use indexmap::IndexMap;
 use nodejs_semver::{Range, Version};
 use serde::de::value::MapAccessDeserializer;
-use serde::de::{MapAccess, Visitor};
+use serde::de::{DeserializeOwned, Error as _, IgnoredAny, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer};
 
 use crate::dependency::{Dependency, ParseError};
 use crate::registry::Release;
-use crate::update::{CompareError, Outdated};
+use crate::update::{CompareError, Outdated, Update};
 
 /// Directories holding installed dependencies rather than projects.
 /// Every directory with one of these names is pruned, including ones in
@@ -126,6 +127,14 @@ impl<'de> Deserialize<'de> for PackageJson {
     }
 }
 
+/// The `package.json` fields holding dependencies.
+const FIELDS: &[&str] = &[
+    "dependencies",
+    "devDependencies",
+    "optionalDependencies",
+    "peerDependencies",
+];
+
 /// Parses registry dependencies from the supported `package.json` fields.
 pub fn dependencies(contents: &str) -> Result<Vec<Dependency>, ParseError> {
     let document = serde_json::from_str::<PackageJson>(contents).map_err(ParseError::json)?;
@@ -145,6 +154,143 @@ pub fn dependencies(contents: &str) -> Result<Vec<Dependency>, ParseError> {
     }
 
     Ok(dependencies)
+}
+
+/// Pins matching `package.json` dependencies to their selected release versions.
+///
+/// Only the matching requirement strings are rewritten, so the rest of the
+/// file keeps its formatting, key order and indentation.
+pub fn pin(contents: &str, updates: &[Update]) -> Result<String, ParseError> {
+    // Report malformed manifests exactly as the Dependency Finder does.
+    dependencies(contents)?;
+
+    let mut replacements = Vec::new();
+    let mut scanner = Scanner::new(contents);
+    scanner.members(|scanner, field| {
+        if !FIELDS.contains(&field.as_str()) {
+            return scanner.skip_value();
+        }
+        scanner.members(|scanner, name| {
+            let (span, requirement) = scanner.value::<String>()?;
+            if let Some(pinned) = pinned_requirement(&name, &requirement, updates) {
+                let pinned = serde_json::to_string(&pinned).map_err(ParseError::json)?;
+                replacements.push((span, pinned));
+            }
+            Ok(())
+        })
+    })?;
+
+    let mut pinned = String::with_capacity(contents.len());
+    let mut end = 0;
+    for (span, replacement) in replacements {
+        pinned.push_str(&contents[end..span.start]);
+        pinned.push_str(&replacement);
+        end = span.end;
+    }
+    pinned.push_str(&contents[end..]);
+    Ok(pinned)
+}
+
+/// Returns the exact requirement for a matching dependency: a bare version,
+/// which npm treats as exact, keeping any `npm:` alias prefix.
+fn pinned_requirement(name: &str, requirement: &str, updates: &[Update]) -> Option<String> {
+    let dependency = parse_requirement(name, requirement)?;
+    let update = updates
+        .iter()
+        .find(|update| update.dependency == dependency)?;
+    Some(if requirement.starts_with("npm:") {
+        format!("npm:{}@{}", dependency.name, update.latest)
+    } else {
+        update.latest.clone()
+    })
+}
+
+/// Walks JSON text, recording where values sit so they can be replaced in place.
+///
+/// Each value is read by `serde_json`, so strings, escapes and numbers follow
+/// its rules; the scanner only steps over the object punctuation between them.
+struct Scanner<'a> {
+    contents: &'a str,
+    position: usize,
+}
+
+impl<'a> Scanner<'a> {
+    fn new(contents: &'a str) -> Self {
+        Self {
+            contents,
+            position: 0,
+        }
+    }
+
+    fn skip_whitespace(&mut self) {
+        let bytes = self.contents.as_bytes();
+        while bytes
+            .get(self.position)
+            .is_some_and(|byte| b" \t\n\r".contains(byte))
+        {
+            self.position += 1;
+        }
+    }
+
+    /// Consumes `byte` if it is the next non-whitespace byte.
+    fn eat(&mut self, byte: u8) -> bool {
+        self.skip_whitespace();
+        let found = self.contents.as_bytes().get(self.position) == Some(&byte);
+        if found {
+            self.position += 1;
+        }
+        found
+    }
+
+    fn expect(&mut self, byte: u8) -> Result<(), ParseError> {
+        if self.eat(byte) {
+            Ok(())
+        } else {
+            Err(ParseError::json(serde_json::Error::custom(format!(
+                "expected `{}` at byte {}",
+                char::from(byte),
+                self.position
+            ))))
+        }
+    }
+
+    /// Reads the next value, returning it with its span in the contents.
+    fn value<T: DeserializeOwned>(&mut self) -> Result<(Span<usize>, T), ParseError> {
+        self.skip_whitespace();
+        let start = self.position;
+        let mut stream =
+            serde_json::Deserializer::from_str(&self.contents[start..]).into_iter::<T>();
+        let value = stream
+            .next()
+            .ok_or_else(|| ParseError::json(serde_json::Error::custom("expected a value")))?
+            .map_err(ParseError::json)?;
+        self.position = start + stream.byte_offset();
+        Ok((start..self.position, value))
+    }
+
+    fn skip_value(&mut self) -> Result<(), ParseError> {
+        self.value::<IgnoredAny>().map(drop)
+    }
+
+    /// Steps through an object, calling `member` with each key once the scanner
+    /// is positioned at that key's value; `member` must consume the value.
+    fn members(
+        &mut self,
+        mut member: impl FnMut(&mut Self, String) -> Result<(), ParseError>,
+    ) -> Result<(), ParseError> {
+        self.expect(b'{')?;
+        if self.eat(b'}') {
+            return Ok(());
+        }
+        loop {
+            let (_, key) = self.value::<String>()?;
+            self.expect(b':')?;
+            member(self, key)?;
+            if !self.eat(b',') {
+                return self.expect(b'}');
+            }
+        }
+    }
 }
 
 fn parse_requirement(name: &str, requirement: &str) -> Option<Dependency> {
@@ -196,9 +342,17 @@ mod tests {
 
     use crate::dependency::Dependency;
     use crate::registry::Release;
-    use crate::update::Outdated;
+    use crate::update::{Outdated, Update};
 
-    use super::{dependencies, is_manifest, outdated, parse_requirement};
+    use super::{dependencies, is_manifest, outdated, parse_requirement, pin};
+
+    fn update(name: &str, requirement: &str, latest: &str) -> Update {
+        Update {
+            dependency: Dependency::new(name, requirement),
+            lowest: String::new(),
+            latest: latest.to_owned(),
+        }
+    }
 
     fn release(version: &str, yanked: bool) -> Release {
         Release {
@@ -480,5 +634,104 @@ mod tests {
             no_match.to_string(),
             "no non-yanked release matches the requirement"
         );
+    }
+
+    #[test]
+    fn pins_every_dependency_field_to_a_bare_exact_version() {
+        let contents = r#"{
+  "name": "example",
+  "dependencies": {"dep": "^1.2", "tagged": "latest"},
+  "devDependencies": {"dev": "~2.0.0"},
+  "optionalDependencies": {"optional": "*"},
+  "peerDependencies": {"peer": ">=3 <4"}
+}
+"#;
+        let updates = [
+            update("dep", "^1.2", "1.9.0"),
+            update("tagged", "latest", "4.0.0"),
+            update("dev", "~2.0.0", "2.1.0"),
+            update("optional", "*", "5.0.0"),
+            update("peer", ">=3 <4", "3.5.0"),
+        ];
+
+        assert_eq!(
+            pin(contents, &updates).unwrap(),
+            r#"{
+  "name": "example",
+  "dependencies": {"dep": "1.9.0", "tagged": "4.0.0"},
+  "devDependencies": {"dev": "2.1.0"},
+  "optionalDependencies": {"optional": "5.0.0"},
+  "peerDependencies": {"peer": "3.5.0"}
+}
+"#
+        );
+    }
+
+    #[test]
+    fn keeps_formatting_other_fields_and_unmatched_or_non_registry_entries() {
+        let contents = "{\n\t\"version\" : 1.5e3,\n\t\"scripts\": {\"dependencies\": \"^1\"},\n\t\"nested\": [{\"dependencies\": {\"dep\": \"^1\"}}, null, true],\n\t\"dependencies\" : {\n\t\t\"dep\"  :  \"^1\" ,\n\t\t\"other\": \"^2\",\n\t\t\"local\": \"file:../local\",\n\t\t\"escaped\\u0021\": \"\\u005e3\"\n\t}\n}";
+        let updates = [
+            update("dep", "^1", "1.4.0"),
+            update("local", "file:../local", "9.9.9"),
+            update("escaped!", "^3", "3.1.0"),
+        ];
+
+        assert_eq!(
+            pin(contents, &updates).unwrap(),
+            "{\n\t\"version\" : 1.5e3,\n\t\"scripts\": {\"dependencies\": \"^1\"},\n\t\"nested\": [{\"dependencies\": {\"dep\": \"^1\"}}, null, true],\n\t\"dependencies\" : {\n\t\t\"dep\"  :  \"1.4.0\" ,\n\t\t\"other\": \"^2\",\n\t\t\"local\": \"file:../local\",\n\t\t\"escaped\\u0021\": \"3.1.0\"\n\t}\n}"
+        );
+    }
+
+    #[test]
+    fn pins_npm_aliases_keeping_the_alias_prefix() {
+        let contents = r#"{"dependencies": {
+            "renamed": "npm:actual@^1",
+            "scoped": "npm:@scope/actual@~2",
+            "bare": "npm:bare-actual"
+        }}"#;
+        let updates = [
+            update("actual", "^1", "1.5.0"),
+            update("@scope/actual", "~2", "2.3.0"),
+            update("bare-actual", "", "0.4.0"),
+        ];
+
+        let pinned = pin(contents, &updates).unwrap();
+
+        assert!(pinned.contains(r#""renamed": "npm:actual@1.5.0""#));
+        assert!(pinned.contains(r#""scoped": "npm:@scope/actual@2.3.0""#));
+        assert!(pinned.contains(r#""bare": "npm:bare-actual@0.4.0""#));
+    }
+
+    #[test]
+    fn pins_duplicate_requirements_in_every_field() {
+        let contents = r#"{"dependencies": {"shared": "^1"}, "devDependencies": {"shared": "^1", "other": "^1"}, "peerDependencies": {"shared": "^2"}}"#;
+
+        let pinned = pin(contents, &[update("shared", "^1", "2.0.0")]).unwrap();
+
+        assert_eq!(
+            pinned,
+            r#"{"dependencies": {"shared": "2.0.0"}, "devDependencies": {"shared": "2.0.0", "other": "^1"}, "peerDependencies": {"shared": "^2"}}"#
+        );
+    }
+
+    #[test]
+    fn pin_leaves_manifests_without_matches_or_dependencies_unchanged() {
+        for contents in [
+            r#"{}"#,
+            " { \"name\": \"x\" } \n",
+            r#"{"dependencies": {}}"#,
+        ] {
+            assert_eq!(
+                pin(contents, &[update("dep", "^1", "1.0.0")]).unwrap(),
+                contents
+            );
+        }
+    }
+
+    #[test]
+    fn pin_reports_invalid_json_and_dependency_shapes() {
+        assert!(pin("not json", &[]).is_err());
+        assert!(pin("[]", &[]).is_err());
+        assert!(pin(r#"{"dependencies": {"dep": 1}}"#, &[]).is_err());
     }
 }

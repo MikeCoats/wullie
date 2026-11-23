@@ -211,6 +211,33 @@ mod tests {
     }
 
     #[test]
+    fn includes_javascript_pins_in_the_combined_diff() {
+        let temp = TempDir::new().unwrap();
+        let manifest = temp.path().join("web/package.json");
+        fs::create_dir_all(manifest.parent().unwrap()).unwrap();
+        fs::write(
+            &manifest,
+            "{\n  \"dependencies\": {\n    \"left-pad\": \"^1.0.0\"\n  }\n}\n",
+        )
+        .unwrap();
+        let update = ProjectUpdates {
+            project: project(Ecosystem::JavaScript, &manifest),
+            updates: vec![Update {
+                dependency: Dependency::new("left-pad", "^1.0.0"),
+                lowest: "1.0.0".to_owned(),
+                latest: "1.3.0".to_owned(),
+            }],
+        };
+
+        let findings = manifest_diffs(temp.path(), &[update]);
+
+        assert!(findings.errors.is_empty());
+        assert!(findings.diff.contains("--- a/web/package.json\n"));
+        assert!(findings.diff.contains("-    \"left-pad\": \"^1.0.0\"\n"));
+        assert!(findings.diff.contains("+    \"left-pad\": \"1.3.0\"\n"));
+    }
+
+    #[test]
     fn reports_manifest_read_errors() {
         let temp = TempDir::new().unwrap();
         let manifest = temp.path().join("missing/Cargo.toml");

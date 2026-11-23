@@ -81,7 +81,7 @@ impl Ecosystem {
         match self {
             Self::Rust => rust::pin(contents, updates),
             Self::Python => python::pin(contents, updates),
-            Self::JavaScript => Ok(contents.to_owned()),
+            Self::JavaScript => javascript::pin(contents, updates),
         }
     }
 }
@@ -227,7 +227,7 @@ mod tests {
     }
 
     #[test]
-    fn pins_rust_and_python_manifests_but_leaves_javascript_unchanged() {
+    fn pins_rust_python_and_javascript_manifests() {
         let contents = "[dependencies]\nexample = \"1\"\n";
         let updates = [crate::update::Update {
             dependency: crate::dependency::Dependency::new("example", "1"),
@@ -251,9 +251,12 @@ mod tests {
                 .unwrap(),
             "[project]\ndependencies = [\"example==1.2.0\"]\n"
         );
+        let javascript_contents = "{\"dependencies\": {\"example\": \"1\"}}\n";
         assert_eq!(
-            Ecosystem::JavaScript.pin(contents, &updates).unwrap(),
-            contents
+            Ecosystem::JavaScript
+                .pin(javascript_contents, &updates)
+                .unwrap(),
+            "{\"dependencies\": {\"example\": \"1.2.0\"}}\n"
         );
     }
 
