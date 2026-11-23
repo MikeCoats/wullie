@@ -137,11 +137,24 @@ fn pin_dependency_table(
         }) else {
             continue;
         };
-        let requirement = format!("={}", update.latest);
+        let requirement = format!("={}", without_build_metadata(&update.latest));
         replace_requirement(item, &requirement);
     }
 
     Ok(())
+}
+
+/// Drops any `+build` suffix from a release version. Cargo ignores build
+/// metadata in requirements (and warns about it), and crates.io rejects
+/// versions that differ only by build metadata, so the pin stays unambiguous.
+fn without_build_metadata(version: &str) -> String {
+    match Version::parse(version) {
+        Ok(mut version) => {
+            version.build = semver::BuildMetadata::EMPTY;
+            version.to_string()
+        }
+        Err(_) => version.to_owned(),
+    }
 }
 
 fn replace_requirement(item: &mut Item, requirement: &str) {
@@ -361,6 +374,24 @@ shared = "3"
         assert!(pinned.contains("shared = \"=3.0.0\""));
         assert!(pinned.contains("version = \"=3.0.0\""));
         assert!(pinned.contains("unmatched = \"4\""));
+    }
+
+    #[test]
+    fn pins_without_build_metadata() {
+        let contents = r#"
+            [dependencies]
+            toml_edit = "0.25.19"
+            pre = "1.0.0-alpha.1"
+        "#;
+        let updates = [
+            update("toml_edit", "0.25.19", "0.25.20+spec-1.1.0"),
+            update("pre", "1.0.0-alpha.1", "1.0.0-alpha.2+build.7"),
+        ];
+
+        let pinned = pin(contents, &updates).unwrap();
+
+        assert!(pinned.contains("toml_edit = \"=0.25.20\""));
+        assert!(pinned.contains("pre = \"=1.0.0-alpha.2\""));
     }
 
     #[test]
