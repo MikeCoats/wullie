@@ -9,6 +9,9 @@ use std::process;
 use std::time::Duration;
 
 use etcetera::{AppStrategy, AppStrategyArgs};
+use strum::IntoEnumIterator;
+
+use crate::project::Ecosystem;
 
 /// A cache entry could not be written.
 #[derive(Debug, thiserror::Error)]
@@ -91,6 +94,28 @@ impl Cache {
         })
     }
 
+    /// Deletes entries written at least `older_than` ago, and any directories
+    /// that leaves empty.
+    ///
+    /// Every package looked up adds a file, so without pruning the cache only
+    /// ever grows.
+    /// `older_than` is separate from `max_age` so that `--refresh`, whose
+    /// `max_age` is zero, doesn't throw away fresh entries for other trees.
+    ///
+    /// Only the ecosystem directories Wullie writes are pruned, so a cache
+    /// rooted somewhere shared never deletes anything else there.
+    /// Symbolic links are left alone and not followed.
+    /// Pruning is best effort like the rest of the cache: anything that can't
+    /// be read or deleted is skipped.
+    pub fn prune(&self, older_than: Duration) {
+        for ecosystem in Ecosystem::iter() {
+            prune_dir(
+                &self.entry_path(Path::new(&ecosystem.to_string())),
+                older_than,
+            );
+        }
+    }
+
     /// The file holding the entry at `key`.
     ///
     /// Keys come from package names, but a name can't be used as a file name
@@ -122,6 +147,36 @@ impl Cache {
     }
 }
 
+/// Prunes the files and directories inside `dir`; see [`Cache::prune`].
+fn prune_dir(dir: &Path, older_than: Duration) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        // `file_type` doesn't follow symbolic links, so a link is neither.
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        let path = entry.path();
+        if file_type.is_dir() {
+            prune_dir(&path, older_than);
+            // This fails, as it should, unless the directory is now empty.
+            let _ = fs::remove_dir(&path);
+        } else if file_type.is_file() && is_older(&entry, older_than) {
+            let _ = fs::remove_file(&path);
+        }
+    }
+}
+
+/// Whether `entry` was modified at least `older_than` ago.
+/// A modification time in the future counts as old, as it does in `get`.
+fn is_older(entry: &fs::DirEntry, older_than: Duration) -> bool {
+    entry
+        .metadata()
+        .and_then(|metadata| metadata.modified())
+        .is_ok_and(|modified| modified.elapsed().ok().is_none_or(|age| age >= older_than))
+}
+
 /// Escapes one part of a cache key for use as a file name; see
 /// [`Cache::entry_path`].
 fn escape(part: &[u8]) -> String {
@@ -141,7 +196,7 @@ mod tests {
     use std::error::Error;
     use std::fs;
     use std::path::Path;
-    use std::time::Duration;
+    use std::time::{Duration, SystemTime};
 
     use tempfile::TempDir;
 
@@ -203,6 +258,97 @@ mod tests {
             fs::read_to_string(temp.path().join("javascript/@%53cope/%50kg")).unwrap(),
             "body"
         );
+    }
+
+    #[test]
+    fn prune_deletes_old_entries_and_empty_directories() {
+        let temp = TempDir::new().unwrap();
+        let cache = Cache::new(temp.path().to_path_buf(), MAX_AGE);
+        let old = Path::new("rust/se/rd/serde");
+        let fresh = Path::new("rust/se/rd/serde_json");
+        let alone = Path::new("javascript/@types/node");
+        for key in [old, fresh, alone] {
+            cache.put(key, "body").unwrap();
+        }
+        cache.age_entry(old, MAX_AGE + Duration::from_secs(60));
+        cache.age_entry(alone, MAX_AGE + Duration::from_secs(60));
+
+        cache.prune(MAX_AGE);
+
+        assert!(!temp.path().join("rust/se/rd/serde").exists());
+        assert_eq!(cache.get(fresh).as_deref(), Some("body"));
+        assert!(!temp.path().join("javascript/@types").exists());
+        assert!(temp.path().join("javascript").is_dir());
+    }
+
+    #[test]
+    fn prune_keeps_fresh_entries_even_with_a_zero_max_age() {
+        let temp = TempDir::new().unwrap();
+        let cache = Cache::new(temp.path().to_path_buf(), Duration::ZERO);
+        let key = Path::new("python/requests");
+        cache.put(key, "body").unwrap();
+
+        cache.prune(MAX_AGE);
+
+        assert!(temp.path().join(key).exists());
+    }
+
+    #[test]
+    fn prune_deletes_old_temporary_files() {
+        let temp = TempDir::new().unwrap();
+        let cache = Cache::new(temp.path().to_path_buf(), MAX_AGE);
+        let leftover = temp.path().join("python/requests.1234.tmp");
+        fs::create_dir_all(leftover.parent().unwrap()).unwrap();
+        fs::write(&leftover, "partial").unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&leftover)
+            .unwrap()
+            .set_modified(SystemTime::now() - MAX_AGE)
+            .unwrap();
+
+        cache.prune(MAX_AGE);
+
+        assert!(!leftover.exists());
+    }
+
+    #[test]
+    fn prune_only_touches_ecosystem_directories() {
+        let temp = TempDir::new().unwrap();
+        let cache = Cache::new(temp.path().to_path_buf(), MAX_AGE);
+        let other = temp.path().join("someone-elses/file");
+        fs::create_dir_all(other.parent().unwrap()).unwrap();
+        fs::write(&other, "keep me").unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&other)
+            .unwrap()
+            .set_modified(SystemTime::now() - MAX_AGE * 10)
+            .unwrap();
+
+        cache.prune(Duration::ZERO);
+
+        assert_eq!(fs::read_to_string(other).unwrap(), "keep me");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn prune_does_not_follow_symbolic_links() {
+        let temp = TempDir::new().unwrap();
+        let outside = temp.path().join("outside");
+        fs::create_dir(&outside).unwrap();
+        fs::write(outside.join("file"), "keep me").unwrap();
+        let cache = Cache::new(temp.path().join("cache"), MAX_AGE);
+        let rust = temp.path().join("cache/rust");
+        fs::create_dir_all(&rust).unwrap();
+        std::os::unix::fs::symlink(&outside, rust.join("link")).unwrap();
+        std::os::unix::fs::symlink(outside.join("file"), rust.join("file-link")).unwrap();
+
+        cache.prune(Duration::ZERO);
+
+        assert_eq!(fs::read_to_string(outside.join("file")).unwrap(), "keep me");
+        assert!(rust.join("link").symlink_metadata().is_ok());
+        assert!(rust.join("file-link").symlink_metadata().is_ok());
     }
 
     #[test]

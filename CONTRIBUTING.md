@@ -88,6 +88,8 @@ Raw index bodies are stored under `$XDG_CACHE_HOME/wullie/<ecosystem>/<index pat
 Each part of the path keeps is formatted such that there are no collisions on case-insensitive filesystems.
 An entry is fresh for a fixed 4 hours from its file modification time, and `--refresh` treats every entry as stale.
 We deliberately don't revalidate with `ETag` or `Last-Modified`: a fixed lifetime is simpler and `--refresh` covers the times freshness matters.
+Each run first deletes entries older than 4 hours, along with any directories left empty, so the cache only holds recent look-ups.
+Pruning always uses the 4 hour lifetime, even with `--refresh`, so a refresh of one tree doesn't empty the cache for every other tree.
 
 ## Errors
 

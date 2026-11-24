@@ -29,6 +29,9 @@ fn main() -> ExitCode {
     let project_findings = find_projects(&root);
     let dependency_findings = find_dependencies(&project_findings.projects);
     let (cache, cache_unavailable) = cache(cli.refresh);
+    if let Some(cache) = &cache {
+        cache.prune(MAX_AGE);
+    }
     let registry = HttpRegistry::new(cache);
     let update_findings = find_updates(&dependency_findings.projects, &registry);
     let diff_findings = manifest_diffs(&root, &update_findings.projects);

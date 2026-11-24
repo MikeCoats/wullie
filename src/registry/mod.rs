@@ -144,8 +144,16 @@ impl Registry for HttpRegistry {
         let path = index_path(ecosystem, name)?;
         let key = PathBuf::from(ecosystem.to_string()).join(&path);
 
-        if let Some(body) = self.cache.as_ref().and_then(|cache| cache.get(&key)) {
-            return parse_index(ecosystem, &body);
+        // An entry that doesn't parse (cut short, or edited by hand) is a
+        // miss, so it is fetched again and overwritten rather than failing
+        // every lookup until it expires.
+        if let Some(releases) = self
+            .cache
+            .as_ref()
+            .and_then(|cache| cache.get(&key))
+            .and_then(|body| parse_index(ecosystem, &body).ok())
+        {
+            return Ok(releases);
         }
 
         let body = self.fetch(&url(ecosystem, &path)?, accept(ecosystem))?;
@@ -343,6 +351,36 @@ mod tests {
                 yanked: false,
             }]
         );
+    }
+
+    #[test]
+    fn unparseable_cache_entries_are_fetched_again() {
+        let temp = TempDir::new().unwrap();
+        let cache = Cache::new(temp.path().to_path_buf(), MAX_AGE);
+        cache
+            .put(Path::new("rust/se/rd/serde"), "{\"vers\":")
+            .unwrap();
+        // Send requests through a proxy port nobody is listening on, so the
+        // fetch fails at once without touching the network.
+        let closed_port = TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap();
+        let proxy = ureq::Proxy::new(&format!("http://{closed_port}")).unwrap();
+        let registry = HttpRegistry {
+            agent: ureq::Agent::config_builder()
+                .proxy(Some(proxy))
+                .build()
+                .into(),
+            cache: Some(cache),
+            cache_write_error: OnceLock::new(),
+        };
+
+        let error = registry.releases(Ecosystem::Rust, "serde").unwrap_err();
+
+        // The damaged entry was skipped and a fetch was attempted, rather
+        // than the parse error being returned.
+        assert_eq!(error.to_string(), "registry request failed");
     }
 
     #[test]
