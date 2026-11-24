@@ -7,7 +7,7 @@ version = "0.2.0"
 authors = ["Mike Coats <i.am@mikecoats.com>"]
 edition = "2024"
 rust-version = "1.88"
-description = "A local project dependency and update finder"
+description = "Yer local groundskeeper"
 homepage = "https://wullie.mikecoats.xyz"
 repository = "https://github.com/MikeCoats/wullie"
 license = "GPL-3.0-or-later"
@@ -22,7 +22,7 @@ pkg-fmt = "tgz"
 
 [dependencies]
 anyhow = "=1.0.105"
-clap = { version = "=4.6.9", features = ["derive"] }
+clap = { version = "=4.6.9", features = ["derive", "wrap_help"] }
 ignore = "=0.4.35"
 indexmap = { version = "2.14.2", features = ["serde"] }
 nodejs-semver = "7.0.0"

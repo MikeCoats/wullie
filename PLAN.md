@@ -41,6 +41,8 @@ SPDX-License-Identifier: GPL-3.0-or-later
     - [ ] Repo
     - [ ] Repo mirroring
 - [ ] Docs
-  - [ ] `--help`
+  - [x] `--help`
+  - [ ] Man page
+  - [ ] Shell completions
   - [ ] Webpage
   - [ ] Blog post & socials

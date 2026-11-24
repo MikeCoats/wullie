@@ -14,9 +14,67 @@ use clap::Parser;
 use wullie::registry::{Cache, HttpRegistry, MAX_AGE};
 use wullie::{find_dependencies, find_projects, find_updates, manifest_diffs};
 
-/// Wullie - yer local groundskeeper
+/// Shown by `--help` in place of the one-line description `-h` shows.
+///
+/// Paragraphs are single lines; clap wraps them to the terminal width.
+const LONG_ABOUT: &str = "\
+Wullie - yer local groundskeeper
+
+Finds out-of-date dependencies in Rust, Python and JavaScript projects and \
+prints a unified diff that updates their manifests to the latest releases.
+
+Wullie never changes files itself; apply the diff with `git apply` or `patch`.
+
+Applying the diff does not install packages or update lock files; regenerate \
+and recommit Cargo.lock, uv.lock, package-lock.json or the equivalent.";
+
+/// Shown after the options by `--help` only.
+///
+/// Paragraphs are single lines; clap wraps them to the terminal width.
+const AFTER_LONG_HELP: &str = "\
+Projects:
+  PATH is searched recursively for project manifests, each checked against \
+its ecosystem's public registry:
+
+    Cargo.toml       Rust         https://index.crates.io
+    pyproject.toml   Python       https://pypi.org/simple
+    package.json     JavaScript   https://registry.npmjs.org
+
+  Ignore files and hidden directories are respected, and build and vendor \
+directories such as target/ and node_modules/ are skipped. Dependencies on \
+private registries, local paths, git repositories, URLs and workspaces are \
+not checked.
+
+Cache:
+  Registry lookups are cached for four hours in the user cache directory, \
+e.g. $XDG_CACHE_HOME/wullie (~/.cache/wullie) on Linux. Use --refresh to \
+pick up a release published since the last lookup.
+
+Exit status:
+  0  Success, whether or not any updates were found.
+  2  Something went wrong.
+
+  Warnings are printed to stderr, and generated diffs are printed \
+to stdout.
+
+Examples:
+  Show available updates for the current directory:
+    wullie
+
+  Apply updates from the root of a git repository:
+    wullie | git apply
+
+  Save a patch for every project under ~/code, using fresh lookups:
+    wullie --refresh ~/code > deps.patch";
+
 #[derive(Parser)]
-#[command(version, about)]
+#[command(
+    version,
+    about,
+    long_about = LONG_ABOUT,
+    after_long_help = AFTER_LONG_HELP,
+    max_term_width = 100
+)]
 struct Cli {
     /// Directory to start searching from (defaults to the current directory)
     path: Option<PathBuf>,
