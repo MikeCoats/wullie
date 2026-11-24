@@ -13,7 +13,7 @@ use serde::{Deserialize, Deserializer};
 
 use crate::dependency::{Dependency, ParseError};
 use crate::registry::Release;
-use crate::update::{CompareError, Outdated, Update};
+use crate::update::{self, CompareError, Outdated, Update};
 
 /// Directories holding installed dependencies rather than projects.
 /// Every directory with one of these names is pruned, including ones in
@@ -40,40 +40,18 @@ pub fn outdated(requirement: &str, releases: &[Release]) -> Result<Option<Outdat
         Err(_) if is_dist_tag(requirement) => Range::any(),
         Err(source) => return Err(CompareError::invalid_javascript_requirement(source)),
     };
-    let versions: Vec<_> = releases
-        .iter()
-        .filter(|release| !release.yanked)
-        .filter_map(|release| {
-            Version::parse(&release.version)
-                .ok()
-                .map(|version| (version, release.version.as_str()))
-        })
-        .collect();
+    let versions = update::published(releases, |version| Version::parse(version).ok());
     // npm ranges only match a pre-release when one of their comparators names
     // a pre-release of the same version, so a matching pre-release means the
     // requirement names one.
     let includes_prereleases = versions
         .iter()
         .any(|(version, _)| version.is_prerelease() && range.satisfies(version));
-    let lowest = versions
-        .iter()
-        .filter(|(version, _)| range.satisfies(version))
-        .min_by(|(left, _), (right, _)| left.cmp(right))
-        .ok_or_else(CompareError::no_matching_release)?;
-    let latest = versions
-        .iter()
-        .filter(|(version, _)| includes_prereleases || !version.is_prerelease())
-        .max_by(|(left, _), (right, _)| left.cmp(right))
-        .ok_or_else(CompareError::no_matching_release)?;
-
-    if lowest.0 < latest.0 {
-        Ok(Some(Outdated {
-            lowest: lowest.1.to_owned(),
-            latest: latest.1.to_owned(),
-        }))
-    } else {
-        Ok(None)
-    }
+    update::outdated(
+        &versions,
+        |version| range.satisfies(version),
+        |version| includes_prereleases || !version.is_prerelease(),
+    )
 }
 
 /// Returns whether `requirement` could be a dist-tag: npm requires tags to be
@@ -199,9 +177,9 @@ fn pinned_requirement(name: &str, requirement: &str, updates: &[Update]) -> Opti
         .iter()
         .find(|update| update.dependency == dependency)?;
     Some(if requirement.starts_with("npm:") {
-        format!("npm:{}@{}", dependency.name, update.latest)
+        format!("npm:{}@{}", dependency.name, update.versions.latest)
     } else {
-        update.latest.clone()
+        update.versions.latest.clone()
     })
 }
 
@@ -349,8 +327,10 @@ mod tests {
     fn update(name: &str, requirement: &str, latest: &str) -> Update {
         Update {
             dependency: Dependency::new(name, requirement),
-            lowest: String::new(),
-            latest: latest.to_owned(),
+            versions: Outdated {
+                lowest: String::new(),
+                latest: latest.to_owned(),
+            },
         }
     }
 

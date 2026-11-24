@@ -9,7 +9,7 @@ use toml_edit::{DocumentMut, Item, Value};
 use super::restore_line_endings;
 use crate::dependency::{Dependency, ParseError};
 use crate::registry::Release;
-use crate::update::{CompareError, Outdated, Update};
+use crate::update::{self, CompareError, Outdated, Update};
 
 /// Cargo's build output directory. Every directory with this name is pruned,
 /// including ones in non-Rust trees.
@@ -32,34 +32,12 @@ pub fn outdated(requirement: &str, releases: &[Release]) -> Result<Option<Outdat
         .comparators
         .iter()
         .any(|comparator| !comparator.pre.is_empty());
-    let versions: Vec<_> = releases
-        .iter()
-        .filter(|release| !release.yanked)
-        .filter_map(|release| {
-            Version::parse(&release.version)
-                .ok()
-                .map(|version| (version, release.version.as_str()))
-        })
-        .collect();
-    let lowest = versions
-        .iter()
-        .filter(|(version, _)| requirement.matches(version))
-        .min_by(|(left, _), (right, _)| left.cmp(right))
-        .ok_or_else(CompareError::no_matching_release)?;
-    let latest = versions
-        .iter()
-        .filter(|(version, _)| includes_prereleases || version.pre.is_empty())
-        .max_by(|(left, _), (right, _)| left.cmp(right))
-        .ok_or_else(CompareError::no_matching_release)?;
-
-    if lowest.0 < latest.0 {
-        Ok(Some(Outdated {
-            lowest: lowest.1.to_owned(),
-            latest: latest.1.to_owned(),
-        }))
-    } else {
-        Ok(None)
-    }
+    let versions = update::published(releases, |version| Version::parse(version).ok());
+    update::outdated(
+        &versions,
+        |version| requirement.matches(version),
+        |version| includes_prereleases || version.pre.is_empty(),
+    )
 }
 
 /// Dependency table names Cargo reads at the top level and under each `target.<spec>`.
@@ -138,7 +116,7 @@ fn pin_dependency_table(
         }) else {
             continue;
         };
-        let requirement = format!("={}", without_build_metadata(&update.latest));
+        let requirement = format!("={}", without_build_metadata(&update.versions.latest));
         replace_requirement(item, &requirement);
     }
 
@@ -281,8 +259,10 @@ mod tests {
     fn update(name: &str, requirement: &str, latest: &str) -> Update {
         Update {
             dependency: dependency(name, requirement),
-            lowest: String::new(),
-            latest: latest.to_owned(),
+            versions: Outdated {
+                lowest: String::new(),
+                latest: latest.to_owned(),
+            },
         }
     }
 

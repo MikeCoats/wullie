@@ -21,10 +21,8 @@ pub struct Outdated {
 pub struct Update {
     /// The dependency as declared in its manifest.
     pub dependency: Dependency,
-    /// The lowest published non-yanked release matching its requirement.
-    pub lowest: String,
-    /// The newest published non-yanked release.
-    pub latest: String,
+    /// The releases that make it out of date.
+    pub versions: Outdated,
 }
 
 /// Outdated dependencies belonging to one project.
@@ -101,10 +99,9 @@ pub fn find_updates(projects: &[ProjectDependencies], registry: &dyn Registry) -
                 continue;
             };
             match ecosystem.outdated(&dependency.requirement, releases) {
-                Ok(Some(outdated)) => updates.push(Update {
+                Ok(Some(versions)) => updates.push(Update {
                     dependency: dependency.clone(),
-                    lowest: outdated.lowest,
-                    latest: outdated.latest,
+                    versions,
                 }),
                 Ok(None) => {}
                 Err(source) => findings.errors.push(UpdateError::Compare {
@@ -124,6 +121,46 @@ pub fn find_updates(projects: &[ProjectDependencies], registry: &dyn Registry) -
     }
 
     findings
+}
+
+/// Parses the version of every non-yanked release with `parse`, keeping the
+/// registry's own spelling alongside, and skipping versions it can't parse.
+pub(crate) fn published<V>(
+    releases: &[Release],
+    parse: impl Fn(&str) -> Option<V>,
+) -> Vec<(V, &str)> {
+    releases
+        .iter()
+        .filter(|release| !release.yanked)
+        .filter_map(|release| Some((parse(&release.version)?, release.version.as_str())))
+        .collect()
+}
+
+/// Compares the lowest of `versions` matching a requirement with the newest
+/// one that may count as the latest release.
+///
+/// This is the rule each ecosystem shares; they differ only in how they parse
+/// versions and requirements, and in which pre-releases they consider.
+pub(crate) fn outdated<V: Ord>(
+    versions: &[(V, &str)],
+    matches: impl Fn(&V) -> bool,
+    may_be_latest: impl Fn(&V) -> bool,
+) -> Result<Option<Outdated>, CompareError> {
+    let lowest = versions
+        .iter()
+        .filter(|(version, _)| matches(version))
+        .min_by(|(left, _), (right, _)| left.cmp(right))
+        .ok_or_else(CompareError::no_matching_release)?;
+    let latest = versions
+        .iter()
+        .filter(|(version, _)| may_be_latest(version))
+        .max_by(|(left, _), (right, _)| left.cmp(right))
+        .ok_or_else(CompareError::no_matching_release)?;
+
+    Ok((lowest.0 < latest.0).then(|| Outdated {
+        lowest: lowest.1.to_owned(),
+        latest: latest.1.to_owned(),
+    }))
 }
 
 /// An error comparing a requirement with published releases.
@@ -173,7 +210,7 @@ mod tests {
     use crate::project::{Ecosystem, Project};
     use crate::registry::{Registry, RegistryError, Release};
 
-    use super::{ProjectUpdates, Update, UpdateError, find_updates};
+    use super::{Outdated, ProjectUpdates, Update, UpdateError, find_updates};
 
     #[derive(Default)]
     struct FakeRegistry {
@@ -252,8 +289,10 @@ mod tests {
     fn update(name: &str, requirement: &str, lowest: &str, latest: &str) -> Update {
         Update {
             dependency: Dependency::new(name, requirement),
-            lowest: lowest.to_owned(),
-            latest: latest.to_owned(),
+            versions: Outdated {
+                lowest: lowest.to_owned(),
+                latest: latest.to_owned(),
+            },
         }
     }
 

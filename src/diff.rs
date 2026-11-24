@@ -165,7 +165,7 @@ mod tests {
 
     use crate::dependency::Dependency;
     use crate::project::{Ecosystem, Project};
-    use crate::update::{ProjectUpdates, Update};
+    use crate::update::{Outdated, ProjectUpdates, Update};
 
     use super::{DiffError, header_name, manifest_diffs, unified_diff};
 
@@ -178,8 +178,10 @@ mod tests {
             project: project(Ecosystem::Rust, manifest),
             updates: vec![Update {
                 dependency: Dependency::new(name, requirement),
-                lowest: String::new(),
-                latest: latest.to_owned(),
+                versions: Outdated {
+                    lowest: String::new(),
+                    latest: latest.to_owned(),
+                },
             }],
         }
     }
@@ -321,8 +323,10 @@ mod tests {
             project: project(Ecosystem::Python, &manifest),
             updates: vec![Update {
                 dependency: Dependency::new("pytest", ">=7"),
-                lowest: "7.0".to_owned(),
-                latest: "8.0".to_owned(),
+                versions: Outdated {
+                    lowest: "7.0".to_owned(),
+                    latest: "8.0".to_owned(),
+                },
             }],
         };
 
@@ -356,8 +360,10 @@ mod tests {
             project: project(Ecosystem::JavaScript, &manifest),
             updates: vec![Update {
                 dependency: Dependency::new("left-pad", "^1.0.0"),
-                lowest: "1.0.0".to_owned(),
-                latest: "1.3.0".to_owned(),
+                versions: Outdated {
+                    lowest: "1.0.0".to_owned(),
+                    latest: "1.3.0".to_owned(),
+                },
             }],
         };
 

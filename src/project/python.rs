@@ -10,7 +10,7 @@ use toml_edit::{DocumentMut, Item};
 use super::restore_line_endings;
 use crate::dependency::{Dependency, ParseError};
 use crate::registry::Release;
-use crate::update::{CompareError, Outdated, Update};
+use crate::update::{self, CompareError, Outdated, Update};
 
 /// Directories holding installed or cached Python code rather than projects.
 /// Every directory with one of these names is pruned, including ones in
@@ -56,34 +56,11 @@ pub fn outdated(requirement: &str, releases: &[Release]) -> Result<Option<Outdat
     let includes_prereleases = specifiers
         .iter()
         .any(|specifier| specifier.any_prerelease());
-    let versions: Vec<_> = releases
-        .iter()
-        .filter(|release| !release.yanked)
-        .filter_map(|release| {
-            Version::from_str(&release.version)
-                .ok()
-                .map(|version| (version, release.version.as_str()))
-        })
-        .filter(|(version, _)| includes_prereleases || !version.any_prerelease())
-        .collect();
-    let lowest = versions
-        .iter()
-        .filter(|(version, _)| specifiers.contains(version))
-        .min_by(|(left, _), (right, _)| left.cmp(right))
-        .ok_or_else(CompareError::no_matching_release)?;
-    let latest = versions
-        .iter()
-        .max_by(|(left, _), (right, _)| left.cmp(right))
-        .ok_or_else(CompareError::no_matching_release)?;
-
-    if lowest.0 < latest.0 {
-        Ok(Some(Outdated {
-            lowest: lowest.1.to_owned(),
-            latest: latest.1.to_owned(),
-        }))
-    } else {
-        Ok(None)
-    }
+    let mut versions = update::published(releases, |version| Version::from_str(version).ok());
+    // Pre-releases the requirement doesn't ask for are dropped before
+    // matching, so they can't be the lowest matching release either.
+    versions.retain(|(version, _)| includes_prereleases || !version.any_prerelease());
+    update::outdated(&versions, |version| specifiers.contains(version), |_| true)
 }
 
 /// Parses Python dependency requirements from PEP 621 and PEP 735 tables.
@@ -187,7 +164,7 @@ fn pin_requirements(array: &mut toml_edit::Array, updates: &[Update]) {
 
         let pinned = format!(
             "{}=={}{}",
-            requirement.prefix, update.latest, requirement.marker
+            requirement.prefix, update.versions.latest, requirement.marker
         );
         let decor = value.decor().clone();
         *value = toml_edit::Value::from(pinned);
@@ -298,8 +275,10 @@ mod tests {
     fn update(name: &str, requirement: &str, latest: &str) -> Update {
         Update {
             dependency: Dependency::new(name, requirement),
-            lowest: String::new(),
-            latest: latest.to_owned(),
+            versions: Outdated {
+                lowest: String::new(),
+                latest: latest.to_owned(),
+            },
         }
     }
 

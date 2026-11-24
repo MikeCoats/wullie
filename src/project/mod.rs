@@ -300,8 +300,10 @@ mod tests {
         let contents = "[dependencies]\nexample = \"1\"\n";
         let updates = [crate::update::Update {
             dependency: crate::dependency::Dependency::new("example", "1"),
-            lowest: "1.0.0".to_owned(),
-            latest: "1.2.0".to_owned(),
+            versions: Outdated {
+                lowest: "1.0.0".to_owned(),
+                latest: "1.2.0".to_owned(),
+            },
         }];
 
         assert_eq!(
@@ -311,8 +313,10 @@ mod tests {
         let python_contents = "[project]\ndependencies = [\"example>=1\"]\n";
         let python_updates = [crate::update::Update {
             dependency: crate::dependency::Dependency::new("example", ">=1"),
-            lowest: "1.0".to_owned(),
-            latest: "1.2.0".to_owned(),
+            versions: Outdated {
+                lowest: "1.0".to_owned(),
+                latest: "1.2.0".to_owned(),
+            },
         }];
         assert_eq!(
             Ecosystem::Python
