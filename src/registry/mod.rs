@@ -91,6 +91,7 @@ impl HttpRegistry {
     pub fn new(cache: Option<Cache>) -> Self {
         let config = ureq::Agent::config_builder()
             .timeout_global(Some(Duration::from_secs(30)))
+            .https_only(true)
             .user_agent(format!("wullie/{}", env!("CARGO_PKG_VERSION")))
             .build();
 
@@ -191,7 +192,10 @@ impl RegistryError {
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
+    use std::net::TcpListener;
     use std::path::Path;
+    use std::sync::OnceLock;
 
     use tempfile::TempDir;
 
@@ -202,7 +206,6 @@ mod tests {
     /// Serves one HTTP response with `body` on a local port, returning its URL.
     fn serve_once(body: Vec<u8>) -> String {
         use std::io::{BufRead, BufReader, Write};
-        use std::net::TcpListener;
 
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}/", listener.local_addr().unwrap());
@@ -222,11 +225,41 @@ mod tests {
     }
 
     #[test]
+    fn the_agent_is_https_only() {
+        assert!(HttpRegistry::new(None).agent.config().https_only());
+    }
+
+    #[test]
+    fn refuses_plain_http_without_connecting() {
+        // Nothing accepts on this listener, so a connection would hang until
+        // the timeout instead of failing at once.
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let url = format!("http://{}/", listener.local_addr().unwrap());
+
+        let error = HttpRegistry::new(None).fetch(&url, None).unwrap_err();
+
+        let source = error.source().expect("a ureq error");
+        assert!(
+            source.to_string().starts_with("configured for https only"),
+            "{source}"
+        );
+        assert!(listener.accept().is_err(), "a connection was made");
+    }
+
+    #[test]
     fn reads_bodies_larger_than_the_ureq_default_limit() {
         let size = 11 * 1024 * 1024;
         let url = serve_once(vec![b'a'; size]);
+        // The test server is plain HTTP, and the body limit is applied in
+        // `fetch` rather than by the agent, so a default agent will do.
+        let registry = HttpRegistry {
+            agent: ureq::Agent::config_builder().build().into(),
+            cache: None,
+            cache_write_error: OnceLock::new(),
+        };
 
-        let body = HttpRegistry::new(None).fetch(&url, None).unwrap();
+        let body = registry.fetch(&url, None).unwrap();
 
         assert_eq!(body.len(), size);
     }
