@@ -125,6 +125,34 @@ impl Project {
     }
 }
 
+/// Keeps line endings consistent between `edited` and `original`.
+///
+/// `toml_edit` uses `\n`, regardless of the source strings. Without this step,
+/// a CRLF-rich manifest would report diffs on every line due to these line
+/// ending changes. This ensures the diff is update focused and noise-free.
+pub(crate) fn restore_line_endings(original: &str, edited: &str) -> String {
+    let original_lines = original.split_inclusive('\n');
+    let edited_lines = edited.split_inclusive('\n');
+    if original_lines.clone().count() != edited_lines.clone().count() {
+        return edited.to_owned();
+    }
+
+    let mut restored = String::with_capacity(edited.len());
+    for (original_line, edited_line) in original_lines.zip(edited_lines) {
+        restored.push_str(split_line_ending(edited_line).0);
+        restored.push_str(split_line_ending(original_line).1);
+    }
+    restored
+}
+
+/// Splits a line into its content and its ending: `\r\n`, `\n`, or nothing.
+fn split_line_ending(line: &str) -> (&str, &str) {
+    let content = line
+        .strip_suffix('\n')
+        .map_or(line, |line| line.strip_suffix('\r').unwrap_or(line));
+    line.split_at(content.len())
+}
+
 #[cfg(test)]
 mod tests {
     use std::ffi::OsStr;
@@ -134,7 +162,48 @@ mod tests {
 
     use crate::update::Outdated;
 
-    use super::{Ecosystem, Project};
+    use super::{Ecosystem, Project, restore_line_endings};
+
+    #[test]
+    fn restores_crlf_endings() {
+        assert_eq!(
+            restore_line_endings("a = 1\r\nb = 2\r\n", "a = 1\nb = 3\n"),
+            "a = 1\r\nb = 3\r\n"
+        );
+    }
+
+    #[test]
+    fn restores_mixed_endings_line_by_line() {
+        assert_eq!(
+            restore_line_endings("a\r\nb\nc\r\n", "a\nB\nc\n"),
+            "a\r\nB\nc\r\n"
+        );
+    }
+
+    #[test]
+    fn restores_a_missing_final_newline() {
+        assert_eq!(restore_line_endings("a\nb", "a\nB\n"), "a\nB");
+        assert_eq!(restore_line_endings("a\r\nb", "a\nB\n"), "a\r\nB");
+    }
+
+    #[test]
+    fn keeps_crlf_already_present_in_the_edited_text() {
+        assert_eq!(
+            restore_line_endings("s = \"\"\"\r\nx\"\"\"\r\n", "s = \"\"\"\r\nx\"\"\"\n"),
+            "s = \"\"\"\r\nx\"\"\"\r\n"
+        );
+    }
+
+    #[test]
+    fn leaves_lf_text_unchanged() {
+        assert_eq!(restore_line_endings("a\nb\n", "a\nB\n"), "a\nB\n");
+        assert_eq!(restore_line_endings("", ""), "");
+    }
+
+    #[test]
+    fn returns_edited_text_when_line_counts_differ() {
+        assert_eq!(restore_line_endings("a\r\nb\r\n", "a\n"), "a\n");
+    }
 
     #[test]
     fn ecosystem_displays_as_output_label() {

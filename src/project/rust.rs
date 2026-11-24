@@ -6,6 +6,7 @@ use std::ffi::OsStr;
 use semver::{Version, VersionReq};
 use toml_edit::{DocumentMut, Item, Value};
 
+use super::restore_line_endings;
 use crate::dependency::{Dependency, ParseError};
 use crate::registry::Release;
 use crate::update::{CompareError, Outdated, Update};
@@ -115,7 +116,7 @@ pub fn pin(contents: &str, updates: &[Update]) -> Result<String, ParseError> {
         pin_dependency_table("workspace.dependencies", workspace_dependencies, updates)?;
     }
 
-    Ok(document.to_string())
+    Ok(restore_line_endings(contents, &document.to_string()))
 }
 
 fn pin_dependency_table(
@@ -374,6 +375,27 @@ shared = "3"
         assert!(pinned.contains("shared = \"=3.0.0\""));
         assert!(pinned.contains("version = \"=3.0.0\""));
         assert!(pinned.contains("unmatched = \"4\""));
+    }
+
+    #[test]
+    fn pins_keep_crlf_line_endings() {
+        let contents = "[package]\r\nname = \"a\"\r\n\r\n[dependencies]\r\nserde = \"1\" # c\r\nanyhow = \"1\"\r\n";
+
+        let pinned = pin(contents, &[update("serde", "1", "1.0.229")]).unwrap();
+
+        assert_eq!(
+            pinned,
+            "[package]\r\nname = \"a\"\r\n\r\n[dependencies]\r\nserde = \"=1.0.229\" # c\r\nanyhow = \"1\"\r\n"
+        );
+    }
+
+    #[test]
+    fn pins_keep_a_missing_final_newline() {
+        let contents = "[dependencies]\nserde = \"1\"";
+
+        let pinned = pin(contents, &[update("serde", "1", "1.0.229")]).unwrap();
+
+        assert_eq!(pinned, "[dependencies]\nserde = \"=1.0.229\"");
     }
 
     #[test]

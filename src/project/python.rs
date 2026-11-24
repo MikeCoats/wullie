@@ -7,6 +7,7 @@ use std::str::FromStr;
 use pep440_rs::{Version, VersionSpecifiers};
 use toml_edit::{DocumentMut, Item};
 
+use super::restore_line_endings;
 use crate::dependency::{Dependency, ParseError};
 use crate::registry::Release;
 use crate::update::{CompareError, Outdated, Update};
@@ -169,7 +170,7 @@ pub fn pin(contents: &str, updates: &[Update]) -> Result<String, ParseError> {
         }
     }
 
-    Ok(document.to_string())
+    Ok(restore_line_endings(contents, &document.to_string()))
 }
 
 fn pin_requirements(array: &mut toml_edit::Array, updates: &[Update]) {
@@ -307,6 +308,18 @@ mod tests {
             version: version.to_owned(),
             yanked,
         }
+    }
+
+    #[test]
+    fn pins_keep_crlf_line_endings() {
+        let contents = "[project]\r\nname = \"app\"\r\ndependencies = [\r\n  \"requests>=2\", # http\r\n  \"rich\",\r\n]\r\n";
+
+        let pinned = pin(contents, &[update("requests", ">=2", "2.32.3")]).unwrap();
+
+        assert_eq!(
+            pinned,
+            "[project]\r\nname = \"app\"\r\ndependencies = [\r\n  \"requests==2.32.3\", # http\r\n  \"rich\",\r\n]\r\n"
+        );
     }
 
     #[test]
