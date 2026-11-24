@@ -6,7 +6,7 @@ default:
     @just --list
 
 # Run every check that CI runs
-ci: fmt lint test msrv reuse package man
+ci: fmt lint test msrv reuse package man completions
 
 # Check formatting
 fmt:
@@ -36,6 +36,10 @@ package:
 man:
     cargo xtask man
 
+# Generate shell completions in target/completions/
+completions:
+    cargo xtask completions
+
 # Build a release tarball in dist/
 dist target=`rustc -vV | sed -n 's/^host: //p'`:
     #!/usr/bin/env bash
@@ -46,6 +50,7 @@ dist target=`rustc -vV | sed -n 's/^host: //p'`:
     rm -rf "dist/${name}"
     mkdir -p "dist/${name}"
     cargo xtask man --out-dir "dist/${name}"
+    cargo xtask completions --out-dir "dist/${name}/completions"
     cp "target/{{target}}/release/wullie" README.md "dist/${name}/"
     cp -r LICENSES "dist/${name}/"
     "${TAR:-tar}" --sort=name --owner=0 --group=0 --numeric-owner \

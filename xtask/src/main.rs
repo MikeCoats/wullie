@@ -2,13 +2,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Project automation for Wullie, run with `cargo xtask <TASK>`.
+//!
+//! Generates the files that are built from the command-line definition in
+//! `wullie::cli`: the man page and shell completions.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result};
-use clap::{CommandFactory, Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
+use clap_complete::Shell;
 use clap_mangen::Man;
 use clap_mangen::roff::{Roff, bold, roman};
 use wullie::cli::{Block, Cli, SECTIONS, Section};
@@ -28,6 +32,12 @@ enum Task {
         #[arg(long)]
         out_dir: Option<PathBuf>,
     },
+    /// Generate shell completions for every shell clap supports
+    Completions {
+        /// Directory to write the completion scripts into (defaults to target/completions)
+        #[arg(long)]
+        out_dir: Option<PathBuf>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -36,6 +46,13 @@ fn main() -> Result<()> {
             let out_dir = out_dir.unwrap_or_else(|| workspace_root().join("target/man"));
             let path = write_man_page(&out_dir)?;
             println!("{}", path.display());
+            Ok(())
+        }
+        Task::Completions { out_dir } => {
+            let out_dir = out_dir.unwrap_or_else(|| workspace_root().join("target/completions"));
+            for path in write_completions(&out_dir)? {
+                println!("{}", path.display());
+            }
             Ok(())
         }
     }
@@ -70,6 +87,22 @@ fn write_man_page(out_dir: &Path) -> Result<PathBuf> {
     let path = out_dir.join(man.get_filename());
     fs::write(&path, page).with_context(|| format!("cannot write {}", path.display()))?;
     Ok(path)
+}
+
+/// Writes a completion script for each shell, named as that shell expects,
+/// e.g. `wullie.bash`, `_wullie` for zsh and `wullie.fish`.
+fn write_completions(out_dir: &Path) -> Result<Vec<PathBuf>> {
+    fs::create_dir_all(out_dir).with_context(|| format!("cannot create {}", out_dir.display()))?;
+    let mut cli = Cli::command();
+    let name = cli.get_name().to_owned();
+    Shell::value_variants()
+        .iter()
+        .map(|&shell| {
+            clap_complete::generate_to(shell, &mut cli, &name, out_dir).with_context(|| {
+                format!("cannot write {shell} completions to {}", out_dir.display())
+            })
+        })
+        .collect()
 }
 
 /// The date of the last commit, so the page is reproducible for a given

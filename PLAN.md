@@ -43,6 +43,6 @@ SPDX-License-Identifier: GPL-3.0-or-later
 - [ ] Docs
   - [x] `--help`
   - [x] Man page
-  - [ ] Shell completions
+  - [x] Shell completions
   - [ ] Webpage
   - [ ] Blog post & socials
