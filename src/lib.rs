@@ -3,6 +3,7 @@
 
 //! Library functionality for finding projects and their dependency version requirements.
 
+pub mod cli;
 pub mod dependency;
 pub mod diff;
 pub mod project;

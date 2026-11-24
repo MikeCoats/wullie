@@ -1,13 +1,16 @@
 # SPDX-FileCopyrightText: 2026 Mike Coats <i.am@mikecoats.com>
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+[workspace]
+members = ["xtask"]
+
 [package]
 name = "wullie"
 version = "0.2.0"
 authors = ["Mike Coats <i.am@mikecoats.com>"]
 edition = "2024"
 rust-version = "1.88"
-description = "Yer local groundskeeper"
+description = "yer local groundskeeper"
 homepage = "https://wullie.mikecoats.xyz"
 repository = "https://github.com/MikeCoats/wullie"
 license = "GPL-3.0-or-later"

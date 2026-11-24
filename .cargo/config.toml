@@ -1,0 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Mike Coats <i.am@mikecoats.com>
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Project automation; see xtask/src/main.rs.
+[alias]
+xtask = "run --package xtask --"

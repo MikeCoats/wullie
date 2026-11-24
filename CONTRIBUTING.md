@@ -23,6 +23,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 | `just msrv`    | Check the build with Rust 1.88, the minimum version |
 | `just reuse`   | Check REUSE licensing compliance with `reuse lint`  |
 | `just package` | Check the crate packages and builds as published    |
+| `just man`     | Generate the `wullie(1)` man page in `target/man/`  |
 | `just dist`    | Build a release tarball for this machine in `dist/` |
 
 ## Licensing

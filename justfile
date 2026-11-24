@@ -6,23 +6,23 @@ default:
     @just --list
 
 # Run every check that CI runs
-ci: fmt lint test msrv reuse package
+ci: fmt lint test msrv reuse package man
 
 # Check formatting
 fmt:
-    cargo fmt --check
+    cargo fmt --all --check
 
 # Lint with clippy, treating warnings as errors
 lint:
-    cargo clippy --all-targets -- -D warnings
+    cargo clippy --workspace --all-targets -- -D warnings
 
 # Run the test suite
 test:
-    cargo test
+    cargo test --workspace
 
 # Check the build with the minimum supported Rust version
 msrv:
-    cargo +1.88 check --all-targets
+    cargo +1.88 check --workspace --all-targets
 
 # Check REUSE licensing compliance
 reuse:
@@ -31,6 +31,10 @@ reuse:
 # Check the crate packages and builds as published
 package:
     cargo package --allow-dirty
+
+# Generate the wullie(1) man page in target/man/
+man:
+    cargo xtask man
 
 # Build a release tarball in dist/
 dist target=`rustc -vV | sed -n 's/^host: //p'`:
@@ -41,6 +45,7 @@ dist target=`rustc -vV | sed -n 's/^host: //p'`:
     cargo build --release --target {{target}}
     rm -rf "dist/${name}"
     mkdir -p "dist/${name}"
+    cargo xtask man --out-dir "dist/${name}"
     cp "target/{{target}}/release/wullie" README.md "dist/${name}/"
     cp -r LICENSES "dist/${name}/"
     "${TAR:-tar}" --sort=name --owner=0 --group=0 --numeric-owner \

@@ -42,7 +42,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
     - [ ] Repo mirroring
 - [ ] Docs
   - [x] `--help`
-  - [ ] Man page
+  - [x] Man page
   - [ ] Shell completions
   - [ ] Webpage
   - [ ] Blog post & socials
