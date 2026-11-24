@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Mike Coats <i.am@mikecoats.com>
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+use std::fmt::Write as _;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -78,8 +79,7 @@ pub fn manifest_diffs(root: &Path, projects: &[ProjectUpdates]) -> DiffFindings 
             continue;
         }
 
-        let name = relative(root, manifest).to_string_lossy();
-        let diff = unified_diff(&name, &contents, &pinned);
+        let diff = unified_diff(relative(root, manifest), &contents, &pinned);
         findings.diff.push_str(&diff);
     }
 
@@ -90,13 +90,70 @@ fn relative<'a>(root: &Path, path: &'a Path) -> &'a Path {
     path.strip_prefix(root).unwrap_or(path)
 }
 
-fn unified_diff(name: &str, old: &str, new: &str) -> String {
-    let old_header = format!("a/{name}");
-    let new_header = format!("b/{name}");
+fn unified_diff(path: &Path, old: &str, new: &str) -> String {
     TextDiff::from_lines(old, new)
         .unified_diff()
-        .header(&old_header, &new_header)
+        .header(&header_name("a/", path), &header_name("b/", path))
         .to_string()
+}
+
+/// Formats a `---`/`+++` file name the way `git diff` does, so `git apply`
+/// and `patch` read back exactly the path that was diffed.
+///
+/// Paths come from the tree being searched, which may be untrusted, and a
+/// directory name can hold any byte but `/` and NUL. Left raw, a newline would
+/// end the header early and let the rest of the name pass as extra diff lines,
+/// such as a hunk creating some other file. So, like git, any name holding a
+/// control character, `"`, `\` or a non-ASCII byte is written as a quoted
+/// C-style string, with those bytes escaped.
+///
+/// Also like git, an unquoted name holding a space is followed by a tab, which
+/// tells `patch` where the name ends.
+fn header_name(prefix: &str, path: &Path) -> String {
+    let mut bytes = prefix.as_bytes().to_vec();
+    bytes.extend_from_slice(path.as_os_str().as_encoded_bytes());
+
+    if !bytes.iter().copied().any(needs_quoting) {
+        // Only ASCII bytes are left, so the conversion can't fail.
+        let name = String::from_utf8_lossy(&bytes).into_owned();
+        return if name.contains(' ') {
+            name + "\t"
+        } else {
+            name
+        };
+    }
+
+    let mut quoted = String::with_capacity(bytes.len() + 2);
+    quoted.push('"');
+    for byte in bytes {
+        // These are the escapes git uses. Except for three-digit octal, `\"`,
+        // `\\` and `\a \b \f \n \r \t \v` are the only escapes git lists (see
+        // `unquote_c_style` in git's `quote.c`). Naming the escapes git names,
+        // rather than writing every byte in octal, keeps the output identical
+        // to `git diff`'s.
+        match byte {
+            b'"' => quoted.push_str("\\\""),
+            b'\\' => quoted.push_str("\\\\"),
+            0x07 => quoted.push_str("\\a"),
+            0x08 => quoted.push_str("\\b"),
+            0x0c => quoted.push_str("\\f"),
+            b'\n' => quoted.push_str("\\n"),
+            b'\r' => quoted.push_str("\\r"),
+            b'\t' => quoted.push_str("\\t"),
+            0x0b => quoted.push_str("\\v"),
+            byte if needs_quoting(byte) => {
+                let _ = write!(quoted, "\\{byte:03o}");
+            }
+            byte => quoted.push(char::from(byte)),
+        }
+    }
+    quoted.push('"');
+    quoted
+}
+
+/// Whether git would quote a name holding `byte`.
+fn needs_quoting(byte: u8) -> bool {
+    !(0x20..0x7f).contains(&byte) || byte == b'"' || byte == b'\\'
 }
 
 #[cfg(test)]
@@ -110,7 +167,7 @@ mod tests {
     use crate::project::{Ecosystem, Project};
     use crate::update::{ProjectUpdates, Update};
 
-    use super::{DiffError, manifest_diffs, unified_diff};
+    use super::{DiffError, header_name, manifest_diffs, unified_diff};
 
     fn project(ecosystem: Ecosystem, manifest: &Path) -> Project {
         Project::new(ecosystem, manifest.to_path_buf()).unwrap()
@@ -130,7 +187,7 @@ mod tests {
     #[test]
     fn unified_diff_uses_manifest_relative_headers() {
         let diff = unified_diff(
-            "nested/Cargo.toml",
+            Path::new("nested/Cargo.toml"),
             "[dependencies]\nserde = \"1\"\n",
             "[dependencies]\nserde = \"=1.2.0\"\n",
         );
@@ -139,6 +196,81 @@ mod tests {
         assert!(diff.contains("+++ b/nested/Cargo.toml\n"));
         assert!(diff.contains("-serde = \"1\"\n"));
         assert!(diff.contains("+serde = \"=1.2.0\"\n"));
+    }
+
+    #[test]
+    fn header_name_leaves_plain_paths_unquoted() {
+        assert_eq!(
+            header_name("a/", Path::new("crates/my-crate_1.0/Cargo.toml")),
+            "a/crates/my-crate_1.0/Cargo.toml"
+        );
+    }
+
+    #[test]
+    fn header_name_ends_names_with_spaces_with_a_tab() {
+        assert_eq!(
+            header_name("b/", Path::new("my app/Cargo.toml")),
+            "b/my app/Cargo.toml\t"
+        );
+    }
+
+    #[test]
+    fn header_name_quotes_and_escapes_like_git() {
+        assert_eq!(
+            header_name("a/", Path::new("x\ny\tz\r\u{7}\u{8}\u{b}\u{c}/Cargo.toml")),
+            r#""a/x\ny\tz\r\a\b\v\f/Cargo.toml""#
+        );
+        assert_eq!(
+            header_name("a/", Path::new("say \"hi\"\\/Cargo.toml")),
+            r#""a/say \"hi\"\\/Cargo.toml""#
+        );
+        assert_eq!(
+            header_name("a/", Path::new("del\u{7f}\u{1b}/Cargo.toml")),
+            r#""a/del\177\033/Cargo.toml""#
+        );
+    }
+
+    #[test]
+    fn header_name_escapes_non_ascii_bytes_in_octal() {
+        assert_eq!(
+            header_name("a/", Path::new("café/Cargo.toml")),
+            r#""a/caf\303\251/Cargo.toml""#
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn header_name_escapes_non_utf8_bytes() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        let path = Path::new(OsStr::from_bytes(b"bad\xff/Cargo.toml"));
+        assert_eq!(header_name("a/", path), r#""a/bad\377/Cargo.toml""#);
+    }
+
+    /// A directory name holding newlines must not be able to add lines, such
+    /// as a hunk for another file, to the diff.
+    #[cfg(unix)]
+    #[test]
+    fn directory_names_cannot_inject_diff_lines() {
+        let temp = TempDir::new().unwrap();
+        let dir = "p\n+++ b/evil.sh\n@@ -0,0 +1 @@\n+echo pwned\n--- a/p";
+        let manifest = temp.path().join(dir).join("Cargo.toml");
+        fs::create_dir_all(manifest.parent().unwrap()).unwrap();
+        fs::write(&manifest, "[dependencies]\nserde = \"1\"\n").unwrap();
+
+        let findings = manifest_diffs(temp.path(), &[updates(&manifest, "serde", "1", "1.2.0")]);
+
+        assert!(findings.errors.is_empty());
+        assert_eq!(
+            findings.diff,
+            "--- \"a/p\\n+++ b/evil.sh\\n@@ -0,0 +1 @@\\n+echo pwned\\n--- a/p/Cargo.toml\"\n\
+             +++ \"b/p\\n+++ b/evil.sh\\n@@ -0,0 +1 @@\\n+echo pwned\\n--- a/p/Cargo.toml\"\n\
+             @@ -1,2 +1,2 @@\n \
+             [dependencies]\n\
+             -serde = \"1\"\n\
+             +serde = \"=1.2.0\"\n"
+        );
     }
 
     #[test]
