@@ -1,9 +1,10 @@
 // SPDX-FileCopyrightText: 2026 Mike Coats <i.am@mikecoats.com>
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+use std::fmt::Write as _;
 use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process;
 use std::time::Duration;
 
@@ -61,7 +62,7 @@ impl Cache {
 
     /// Returns the entry at `key` if it was written less than `max_age` ago.
     pub(crate) fn get(&self, key: &Path) -> Option<String> {
-        let path = self.dir.join(key);
+        let path = self.entry_path(key);
         let modified = fs::metadata(&path).and_then(|m| m.modified()).ok()?;
         // A modification time in the future fails `elapsed`, so it counts as stale.
         let age = modified.elapsed().ok()?;
@@ -74,7 +75,7 @@ impl Cache {
     /// Writes the entry at `key` through a temporary file, so readers never
     /// see a partial entry.
     pub(crate) fn put(&self, key: &Path, body: &str) -> Result<(), CacheError> {
-        let path = self.dir.join(key);
+        let path = self.entry_path(key);
         let parent = path.parent().unwrap_or(&self.dir);
         fs::create_dir_all(parent).map_err(|source| CacheError::new(path.clone(), source))?;
         let mut temporary = path.clone().into_os_string();
@@ -90,15 +91,49 @@ impl Cache {
         })
     }
 
+    /// The file holding the entry at `key`.
+    ///
+    /// Keys come from package names, but a name can't be used as a file name
+    /// as it is. npm names are/were/sometimes case-sensitive and on
+    /// case-insensitive filesystems they would share a file, so a lookup of
+    /// one could be answered with the other's releases.
+    ///
+    /// Each part of the key keeps only lowercase ASCII letters, digits,
+    /// `-`, `_` and `@`, and every other byte is written as `%` and two
+    /// uppercase hex digits, e.g. `JSONStream` as `%4A%53%4F%4E%53tream`.
+    fn entry_path(&self, key: &Path) -> PathBuf {
+        let mut path = self.dir.clone();
+        for component in key.components() {
+            if let Component::Normal(part) = component {
+                path.push(escape(part.as_encoded_bytes()));
+            }
+        }
+        path
+    }
+
     #[cfg(test)]
     pub(crate) fn age_entry(&self, key: &Path, by: Duration) {
         let file = fs::File::options()
             .write(true)
-            .open(self.dir.join(key))
+            .open(self.entry_path(key))
             .unwrap();
         file.set_modified(std::time::SystemTime::now() - by)
             .unwrap();
     }
+}
+
+/// Escapes one part of a cache key for use as a file name; see
+/// [`Cache::entry_path`].
+fn escape(part: &[u8]) -> String {
+    let mut escaped = String::with_capacity(part.len());
+    for &byte in part {
+        if byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"-_@".contains(&byte) {
+            escaped.push(char::from(byte));
+        } else {
+            let _ = write!(escaped, "%{byte:02X}");
+        }
+    }
+    escaped
 }
 
 #[cfg(test)]
@@ -110,7 +145,65 @@ mod tests {
 
     use tempfile::TempDir;
 
-    use super::{Cache, MAX_AGE};
+    use super::{Cache, MAX_AGE, escape};
+
+    #[test]
+    fn escape_keeps_lowercase_names_readable() {
+        assert_eq!(escape(b"serde"), "serde");
+        assert_eq!(escape(b"foo-bar_2"), "foo-bar_2");
+        assert_eq!(escape(b"@types"), "@types");
+    }
+
+    #[test]
+    fn escape_writes_uppercase_dots_and_tildes_as_hex() {
+        assert_eq!(escape(b"JSONStream"), "%4A%53%4F%4E%53tream");
+        assert_eq!(escape(b"foo."), "foo%2E");
+        assert_eq!(escape(b"a~b"), "a%7Eb");
+        assert_eq!(escape(b"100%"), "100%25");
+    }
+
+    #[test]
+    fn keys_differing_only_in_case_or_a_trailing_dot_use_different_files() {
+        let temp = TempDir::new().unwrap();
+        let cache = Cache::new(temp.path().to_path_buf(), MAX_AGE);
+        let keys = [
+            "javascript/JSONStream",
+            "javascript/jsonstream",
+            "javascript/foo",
+            "javascript/foo.",
+        ];
+
+        for key in keys {
+            cache.put(Path::new(key), key).unwrap();
+        }
+
+        for key in keys {
+            assert_eq!(cache.get(Path::new(key)).as_deref(), Some(key));
+        }
+        // Compare as a case-insensitive filesystem would.
+        let mut names: Vec<_> = fs::read_dir(temp.path().join("javascript"))
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_ascii_lowercase())
+            .collect();
+        names.sort();
+        names.dedup();
+        assert_eq!(names.len(), keys.len());
+    }
+
+    #[test]
+    fn scoped_keys_keep_their_scope_directory() {
+        let temp = TempDir::new().unwrap();
+        let cache = Cache::new(temp.path().to_path_buf(), MAX_AGE);
+
+        cache
+            .put(Path::new("javascript/@Scope/Pkg"), "body")
+            .unwrap();
+
+        assert_eq!(
+            fs::read_to_string(temp.path().join("javascript/@%53cope/%50kg")).unwrap(),
+            "body"
+        );
+    }
 
     #[test]
     fn returns_a_fresh_entry() {

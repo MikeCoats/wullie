@@ -105,9 +105,8 @@ jobs:
         id: auth
       # We follow a similar security principle here, too. The check job has
       # already built this code with `cargo publish --dry-run`. Running publish
-      # with no-verify means we re-use that older artefact, skipping a build
-      # here, and preventing supply-chain code execution from getting near our
-      # crates.io token.
+      # with no-verify means we don't run any checks thereby preventing
+      # supply-chain code execution from getting near our crates.io token.
       - run: cargo publish --no-verify
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
