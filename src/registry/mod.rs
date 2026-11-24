@@ -12,6 +12,14 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::Duration;
 
+/// The largest index body read from a registry.
+///
+/// ureq stops at 10 MiB by default, which some popular packages pass: npm's
+/// abbreviated document for `next` was 25 MB in November 2026, and grows
+/// with every canary release. This leaves plenty of room for growth while
+/// still stopping a misbehaving server from exhausting memory.
+const MAX_BODY_SIZE: u64 = 64 * 1024 * 1024;
+
 use crate::project::Ecosystem;
 
 /// A published release and whether its registry has yanked it.
@@ -123,6 +131,8 @@ impl HttpRegistry {
         };
         response
             .into_body()
+            .with_config()
+            .limit(MAX_BODY_SIZE)
             .read_to_string()
             .map_err(RegistryError::http)
     }
@@ -188,6 +198,38 @@ mod tests {
     use crate::project::Ecosystem;
 
     use super::{Cache, HttpRegistry, MAX_AGE, Registry, Release, accept, index_path, url};
+
+    /// Serves one HTTP response with `body` on a local port, returning its URL.
+    fn serve_once(body: Vec<u8>) -> String {
+        use std::io::{BufRead, BufReader, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/", listener.local_addr().unwrap());
+        std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream);
+            let mut line = String::new();
+            while reader.read_line(&mut line).unwrap() > 2 {
+                line.clear();
+            }
+            let mut stream = reader.into_inner();
+            let header = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", body.len());
+            stream.write_all(header.as_bytes()).unwrap();
+            stream.write_all(&body).unwrap();
+        });
+        url
+    }
+
+    #[test]
+    fn reads_bodies_larger_than_the_ureq_default_limit() {
+        let size = 11 * 1024 * 1024;
+        let url = serve_once(vec![b'a'; size]);
+
+        let body = HttpRegistry::new(None).fetch(&url, None).unwrap();
+
+        assert_eq!(body.len(), size);
+    }
 
     #[test]
     fn rust_dispatches_to_its_index_rules() {
