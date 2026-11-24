@@ -7,29 +7,46 @@ on:
   push:
     tags: ["v*"]
 
+# Building code & dependencies from cargo can result in code execution, so we
+# should be careful about what we compile and where we do it. We default to
+# read-only permissions for all jobs. We then elevate permissions ONLY for
+# steps that ONLY interact with GitHub.
 permissions:
-  contents: write
+  contents: read
 
 env:
-  GH_TOKEN: ${{ github.token }}
   TAG: ${{ github.ref_name }}
 
 jobs:
-  create:
+  check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Check tag matches Cargo.toml version
         run: |
           version=$(cargo pkgid | sed 's/.*[#@]//')
           [ "$TAG" = "v$version" ] || { echo "Tag $TAG != v$version"; exit 1; }
-      - name: Check the crate packages for crates.io
+      - name: Check the crate packages and builds for crates.io
         run: cargo publish --dry-run
+
+  create:
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Fetch the annotated tag
         run: git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
       - name: Extract the tag message
         run: git tag --list "$TAG" --format='%(contents:subject)%0a%0a%(contents:body)' > "$RUNNER_TEMP/notes.md"
       - run: gh release create "$TAG" --draft --verify-tag --generate-notes --notes-file "$RUNNER_TEMP/notes.md"
+        env:
+          GH_TOKEN: ${{ github.token }}
 
   build:
     needs: create
@@ -41,6 +58,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -48,10 +67,31 @@ jobs:
       - run: just dist ${{ matrix.target }}
         env:
           TAR: ${{ runner.os == 'macOS' && 'gtar' || 'tar' }}
-      - run: gh release upload "$TAG" dist/*.tar.gz dist/*.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.target }}
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
+          if-no-files-found: error
+
+  upload:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+      - run: gh release upload "$TAG" dist/*.tar.gz dist/*.sha256 --repo "$GITHUB_REPOSITORY"
+        env:
+          GH_TOKEN: ${{ github.token }}
 
   publish:
-    needs: build
+    needs: upload
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -59,9 +99,18 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: rust-lang/crates-io-auth-action@v1
         id: auth
-      - run: cargo publish
+      # We follow a similar security principle here, too. The check job has
+      # already built this code with `cargo publish --dry-run`. Running publish
+      # with no-verify means we re-use that older artefact, skipping a build
+      # here, and preventing supply-chain code execution from getting near our
+      # crates.io token.
+      - run: cargo publish --no-verify
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
       - run: gh release edit "$TAG" --draft=false --repo "$GITHUB_REPOSITORY"
+        env:
+          GH_TOKEN: ${{ github.token }}
