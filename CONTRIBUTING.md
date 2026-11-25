@@ -86,10 +86,12 @@ The Diff Maker never updates lock files, so regenerate `Cargo.lock`, `uv.lock`, 
 There are timeout limits on each step: 10 seconds to connect, and 30 seconds for each partial read, with a backstop of 5 minutes for the whole connection.
 A slow but steady download of a large index keeps going, while a stalled connection fails.
 
+A missing package or any other client error fails at once.
+
 A lookup that fails in a way that is likely to be temporary is tried up to 3 times.
 Wullie waits up to 10 seconds; if a registry asks for longer, through a `Retry-After` header, its remaining lookups fail at once with a warning.
-
-A missing package or any other client error fails at once.
+A registry that can't be reached at all, because its name doesn't resolve or connecting to it fails even after retrying, isn't sent anything more during that run.
+The first failure is reported as usual, and the lookups skipped after it are reported in one warning per registry, such as `skipped 212 more lookups on index.crates.io because it couldn't be reached`.
 
 ### Look-up Cache
 

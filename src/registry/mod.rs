@@ -12,6 +12,7 @@ pub(crate) use cache::{Cache, CacheError, MAX_AGE};
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::io;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::thread;
@@ -115,8 +116,17 @@ pub(crate) struct HttpRegistry {
     agent: ureq::Agent,
     cache: Option<Cache>,
     cache_write_error: OnceLock<CacheError>,
-    /// When each registry, by host, last asked not to be sent requests until.
-    not_before: RefCell<HashMap<String, Instant>>,
+    /// What this run has learned about each registry, by host.
+    hosts: RefCell<HashMap<String, HostState>>,
+}
+
+/// What a run has learned about a registry that limits sending it requests.
+#[derive(Debug, Clone, Copy)]
+enum HostState {
+    /// It asked, with `Retry-After`, not to be sent requests until then.
+    WaitUntil(Instant),
+    /// It couldn't be reached, so it isn't sent anything more this run.
+    Unreachable,
 }
 
 impl HttpRegistry {
@@ -138,7 +148,7 @@ impl HttpRegistry {
             agent: config.into(),
             cache,
             cache_write_error: OnceLock::new(),
-            not_before: RefCell::default(),
+            hosts: RefCell::default(),
         }
     }
 
@@ -167,6 +177,10 @@ impl HttpRegistry {
     /// A `Retry-After` header is always respected: no request is sent to that
     /// registry before the time it gives, for this lookup or any later one.
     /// Without one, attempts are spaced by [`backoff`].
+    ///
+    /// If the registry can't be reached at all, even after retrying, it is
+    /// marked unreachable and every later lookup on it fails at once, rather
+    /// than each waiting through the same timeouts and retries.
     fn fetch(&self, url: &str, accept: Option<&str>) -> Result<String, RegistryError> {
         let host = host(url);
         let mut attempt = 1;
@@ -177,11 +191,17 @@ impl HttpRegistry {
                 Err(failure) => failure,
             };
             if let Some(retry_after) = failure.retry_after {
-                self.not_before
-                    .borrow_mut()
-                    .insert(host.clone(), Instant::now() + retry_after);
+                self.hosts.borrow_mut().insert(
+                    host.clone(),
+                    HostState::WaitUntil(Instant::now() + retry_after),
+                );
             }
             if !failure.retryable || attempt == MAX_ATTEMPTS {
+                if failure.unreachable {
+                    self.hosts
+                        .borrow_mut()
+                        .insert(host.clone(), HostState::Unreachable);
+                }
                 return Err(failure.error);
             }
             if failure.retry_after.is_none() {
@@ -192,10 +212,14 @@ impl HttpRegistry {
     }
 
     /// Waits until `host` may be sent a request, or fails if its registry
-    /// asked for a longer wait than [`MAX_WAIT`].
+    /// asked for a longer wait than [`MAX_WAIT`] or couldn't be reached.
     fn wait_for(&self, host: &str) -> Result<(), RegistryError> {
-        let Some(until) = self.not_before.borrow().get(host).copied() else {
+        let Some(state) = self.hosts.borrow().get(host).copied() else {
             return Ok(());
+        };
+        let until = match state {
+            HostState::Unreachable => return Err(RegistryError::unreachable(host)),
+            HostState::WaitUntil(until) => until,
         };
         let wait = until.saturating_duration_since(Instant::now());
         if wait > MAX_WAIT {
@@ -238,6 +262,8 @@ impl HttpRegistry {
 struct Failure {
     error: RegistryError,
     retryable: bool,
+    /// Whether the registry was never reached, so no response came back.
+    unreachable: bool,
     retry_after: Option<Duration>,
 }
 
@@ -248,6 +274,7 @@ impl From<ureq::Error> for Failure {
             ureq::Error::Io(_) | ureq::Error::ConnectionFailed | ureq::Error::Timeout(_) => true,
             _ => false,
         };
+        let unreachable = is_unreachable(&error);
         let error = if matches!(error, ureq::Error::StatusCode(404)) {
             RegistryError::not_found()
         } else {
@@ -256,8 +283,31 @@ impl From<ureq::Error> for Failure {
         Self {
             error,
             retryable,
+            unreachable,
             retry_after: None,
         }
+    }
+}
+
+/// Whether `error` means the registry was never reached: its name didn't
+/// resolve, or connecting to it failed or timed out.
+///
+/// A failure after connecting, such as a reset partway through a download,
+/// doesn't count: the registry is up, even if that one lookup failed.
+fn is_unreachable(error: &ureq::Error) -> bool {
+    match error {
+        ureq::Error::HostNotFound | ureq::Error::ConnectionFailed => true,
+        ureq::Error::Timeout(timeout) => {
+            matches!(timeout, ureq::Timeout::Resolve | ureq::Timeout::Connect)
+        }
+        ureq::Error::Io(error) => matches!(
+            error.kind(),
+            io::ErrorKind::ConnectionRefused
+                | io::ErrorKind::HostUnreachable
+                | io::ErrorKind::NetworkUnreachable
+                | io::ErrorKind::NetworkDown
+        ),
+        _ => false,
     }
 }
 
@@ -374,6 +424,8 @@ enum RegistryErrorKind {
     Http(#[source] ureq::Error),
     #[error("registry asked not to be sent requests for another {0} seconds")]
     RateLimited(u64),
+    #[error("registry {0} couldn't be reached earlier in this run")]
+    Unreachable(String),
     #[error("cannot parse registry index data")]
     Index(#[source] serde_json::Error),
 }
@@ -388,6 +440,21 @@ impl RegistryError {
     fn rate_limited(wait: Duration) -> Self {
         let seconds = wait.as_secs() + u64::from(wait.subsec_nanos() > 0);
         Self(RegistryErrorKind::RateLimited(seconds))
+    }
+
+    /// A lookup skipped because its registry, `host`, couldn't be reached
+    /// earlier in the run.
+    pub(crate) fn unreachable(host: &str) -> Self {
+        Self(RegistryErrorKind::Unreachable(host.to_owned()))
+    }
+
+    /// The registry this lookup was skipped for, if it was skipped because
+    /// the registry couldn't be reached earlier in the run.
+    pub(crate) fn unreachable_registry(&self) -> Option<&str> {
+        match &self.0 {
+            RegistryErrorKind::Unreachable(host) => Some(host),
+            _ => None,
+        }
     }
 
     fn invalid_name() -> Self {
@@ -419,7 +486,7 @@ mod tests {
 
     use super::{
         Cache, HttpRegistry, MAX_AGE, READ_TIMEOUT, Registry, Release, accept, backoff, index_path,
-        parse_http_date, parse_retry_after, url,
+        is_unreachable, parse_http_date, parse_retry_after, url,
     };
 
     /// Serves `responses` on a local port, one per connection in order,
@@ -468,7 +535,7 @@ mod tests {
                 .into(),
             cache: None,
             cache_write_error: OnceLock::new(),
-            not_before: RefCell::default(),
+            hosts: RefCell::default(),
         }
     }
 
@@ -562,6 +629,52 @@ mod tests {
         assert_eq!(body, "body");
         assert_eq!(requests.load(Ordering::SeqCst), 2);
         assert!(started.elapsed() >= Duration::from_secs(1));
+    }
+
+    #[test]
+    fn treats_only_failures_to_reach_a_registry_as_unreachable() {
+        use std::io;
+
+        for error in [
+            ureq::Error::HostNotFound,
+            ureq::Error::ConnectionFailed,
+            ureq::Error::Timeout(ureq::Timeout::Connect),
+            ureq::Error::Io(io::ErrorKind::ConnectionRefused.into()),
+            ureq::Error::Io(io::ErrorKind::NetworkUnreachable.into()),
+        ] {
+            assert!(is_unreachable(&error), "{error}");
+        }
+        for error in [
+            ureq::Error::StatusCode(503),
+            ureq::Error::Timeout(ureq::Timeout::PerRead),
+            ureq::Error::Io(io::ErrorKind::ConnectionReset.into()),
+        ] {
+            assert!(!is_unreachable(&error), "{error}");
+        }
+    }
+
+    #[test]
+    fn stops_sending_requests_to_a_registry_that_cannot_be_reached() {
+        // Nothing listens on a port once its listener is dropped, so
+        // connecting is refused.
+        let closed = TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap();
+        let url = format!("http://{closed}/");
+        let registry = local_registry();
+
+        let first = registry.fetch(&url, None).unwrap_err();
+        let started = Instant::now();
+        let second = registry.fetch(&url, None).unwrap_err();
+
+        assert_eq!(first.to_string(), "registry request failed");
+        assert_eq!(first.unreachable_registry(), None);
+        assert_eq!(
+            second.unreachable_registry(),
+            Some(closed.to_string().as_str())
+        );
+        assert!(started.elapsed() < Duration::from_millis(500));
     }
 
     #[test]
@@ -744,7 +857,7 @@ mod tests {
                 .into(),
             cache: Some(cache),
             cache_write_error: OnceLock::new(),
-            not_before: RefCell::default(),
+            hosts: RefCell::default(),
         };
 
         let error = registry.releases(Ecosystem::Rust, "serde").unwrap_err();

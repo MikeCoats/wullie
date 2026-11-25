@@ -64,6 +64,21 @@ pub(crate) enum UpdateError {
         #[source]
         source: RegistryError,
     },
+    /// Lookups skipped because their registry couldn't be reached.
+    ///
+    /// The lookup that found the registry unreachable is reported on its own,
+    /// as a [`UpdateError::Lookup`], and every later one is counted here, so
+    /// a registry that is down gives two warnings rather than one per package.
+    #[error(
+        "skipped {count} more {} on {registry} because it couldn't be reached",
+        if *count == 1 { "lookup" } else { "lookups" }
+    )]
+    Skipped {
+        /// The registry's host.
+        registry: String,
+        /// How many lookups were skipped.
+        count: usize,
+    },
     /// A dependency requirement could not be compared with its releases.
     #[error("cannot check {name} {requirement} in {}", manifest.display())]
     Compare {
@@ -86,6 +101,8 @@ pub(crate) fn find_updates(
 ) -> UpdateFindings {
     let mut findings = UpdateFindings::default();
     let mut cache: HashMap<(Ecosystem, String), Option<Vec<Release>>> = HashMap::new();
+    // Lookups skipped per unreachable registry, in the order first skipped.
+    let mut skipped: Vec<(String, usize)> = Vec::new();
 
     for project in projects {
         let ecosystem = project.project.ecosystem();
@@ -98,12 +115,13 @@ pub(crate) fn find_updates(
             let releases = cache.entry(key).or_insert_with(|| {
                 registry
                     .releases(ecosystem, &dependency.name)
-                    .map_err(|source| {
-                        findings.errors.push(UpdateError::Lookup {
+                    .map_err(|source| match source.unreachable_registry() {
+                        Some(registry) => count_skipped(&mut skipped, registry),
+                        None => findings.errors.push(UpdateError::Lookup {
                             name: dependency.name.clone(),
                             manifest: project.project.manifest().to_path_buf(),
                             source,
-                        });
+                        }),
                     })
                     .ok()
             });
@@ -133,7 +151,20 @@ pub(crate) fn find_updates(
         }
     }
 
+    findings.errors.extend(
+        skipped
+            .into_iter()
+            .map(|(registry, count)| UpdateError::Skipped { registry, count }),
+    );
     findings
+}
+
+/// Counts one more lookup skipped for `registry`.
+fn count_skipped(skipped: &mut Vec<(String, usize)>, registry: &str) {
+    match skipped.iter_mut().find(|(name, _)| name == registry) {
+        Some((_, count)) => *count += 1,
+        None => skipped.push((registry.to_owned(), 1)),
+    }
 }
 
 /// Parses the version of every non-yanked release with `parse`, keeping the
@@ -229,6 +260,8 @@ mod tests {
     struct FakeRegistry {
         releases: HashMap<(Ecosystem, String), Vec<Release>>,
         calls: RefCell<HashMap<(Ecosystem, String), usize>>,
+        /// Packages whose lookup is skipped as if their registry were down.
+        unreachable: HashMap<(Ecosystem, String), &'static str>,
     }
 
     impl FakeRegistry {
@@ -266,6 +299,9 @@ mod tests {
                 .borrow_mut()
                 .entry((ecosystem, name.clone()))
                 .or_default() += 1;
+            if let Some(registry) = self.unreachable.get(&(ecosystem, name.clone())) {
+                return Err(RegistryError::unreachable(registry));
+            }
             self.releases
                 .get(&(ecosystem, name))
                 .cloned()
@@ -512,6 +548,37 @@ mod tests {
     }
 
     #[test]
+    fn reports_lookups_skipped_on_an_unreachable_registry_in_one_summary() {
+        let mut registry = FakeRegistry::default();
+        registry.set_releases(Ecosystem::Rust, "up", &[("1.0.0", false)]);
+        for name in ["a", "b", "c"] {
+            registry
+                .unreachable
+                .insert((Ecosystem::Rust, name.to_owned()), "index.crates.io");
+        }
+        registry.unreachable.insert(
+            (Ecosystem::JavaScript, "d".to_owned()),
+            "registry.npmjs.org",
+        );
+        let projects = vec![
+            project_dependencies("/first/Cargo.toml", &[("a", "1"), ("up", "1")]),
+            project_dependencies("/second/Cargo.toml", &[("b", "1"), ("c", "1")]),
+            project_dependencies_for(Ecosystem::JavaScript, "/web/package.json", &[("d", "1")]),
+        ];
+
+        let findings = find_updates(&projects, &registry);
+
+        let messages: Vec<_> = findings.errors.iter().map(ToString::to_string).collect();
+        assert_eq!(
+            messages,
+            [
+                "skipped 3 more lookups on index.crates.io because it couldn't be reached",
+                "skipped 1 more lookup on registry.npmjs.org because it couldn't be reached",
+            ]
+        );
+    }
+
+    #[test]
     fn reports_comparison_errors_with_the_dependency_and_requirement() {
         let mut registry = FakeRegistry::default();
         registry.set_releases(Ecosystem::Rust, "broken", &[("1.0.0", false)]);
@@ -540,7 +607,7 @@ mod tests {
                 );
                 assert_eq!(source.to_string(), "invalid version requirement");
             }
-            error @ UpdateError::Lookup { .. } => {
+            error @ (UpdateError::Lookup { .. } | UpdateError::Skipped { .. }) => {
                 panic!("expected a comparison error, got {error:?}")
             }
         }
