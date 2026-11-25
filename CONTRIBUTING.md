@@ -7,7 +7,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 ## Prerequisites
 
-- [Rust][rust] 1.88 or newer
+- [Rust][rust] via `rustup`, which installs the version pinned in `rust-toolchain.toml`
 - [`just`][just]: e.g. `cargo install just`, or `cargo binstall just` for a prebuilt binary
 - [`reuse`][reuse] e.g. `pipx install reuse`
 
@@ -20,7 +20,6 @@ SPDX-License-Identifier: GPL-3.0-or-later
 | `just fmt`         | Check formatting with `cargo fmt --check`           |
 | `just lint`        | Lint with clippy, treating warnings as errors       |
 | `just test`        | Run the test suite                                  |
-| `just msrv`        | Check the build with Rust 1.88, the minimum version |
 | `just reuse`       | Check REUSE licensing compliance with `reuse lint`  |
 | `just package`     | Check the crate packages and builds as published    |
 | `just man`         | Generate the `wullie(1)` man page in `target/man/`  |
@@ -114,12 +113,6 @@ The starting directory itself is not pruned, so searching from a directory with 
   This is where we differ from `ripgrep`, which exits with `1` when nothing matches.
   An empty tree is a valid, complete answer for Wullie, not a failed search.
 
-## Writing Markdown
-
-Every sentence should be written on its own line.
-Rendered HTML joins the lines back into paragraphs, and diffs then show exactly which sentence changed.
-Reference-style links are preferred to inline links.
-
 ## Lints
 
 Some of our CI GitHub Actions were failing due to more restrictive linting rules.
@@ -163,6 +156,18 @@ Delete it with `gh release delete v0.1.1` before pushing the tag again, or re-ru
 
 A version published to crates.io can be yanked but never replaced, so a broken release needs a new patch version.
 
+## Rust Version
+
+We predominantly ship releases as prebuilt binaries, so Wullie just targets one recent Rust version.
+`Cargo.toml`s and `rust-toolchain.toml` pin the version used locally, in CI and for releases, and `rustup` installs it automatically.
+
+To update, change `channel` in `rust-toolchain.toml` and `rust-version` in both `Cargo.toml` and `xtask/Cargo.toml`, then fix anything `just ci` reports.
+
+## Writing Markdown
+
+Every sentence should be written on its own line.
+Rendered HTML joins the lines back into paragraphs, and diffs then show exactly which sentence changed.
+Reference-style links are preferred to inline links.
 
 [rust]: https://rustup.rs/
 [just]: https://just.systems/

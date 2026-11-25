@@ -24,6 +24,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - run: rustup toolchain install
       - name: Check tag matches Cargo.toml version
         run: |
           version=$(cargo pkgid | sed 's/.*[#@]//')
@@ -60,9 +61,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
+      - run: rustup toolchain install --target ${{ matrix.target }}
       - uses: taiki-e/install-action@just
       - run: just dist ${{ matrix.target }}
         env:
@@ -101,6 +100,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - run: rustup toolchain install
       - uses: rust-lang/crates-io-auth-action@v1
         id: auth
       # We follow a similar security principle here, too. The check job has
