@@ -81,6 +81,16 @@ The Diff Maker never updates lock files, so regenerate `Cargo.lock`, `uv.lock`, 
 `Registry` is a trait because registry clients are an open set, including crates.io, PyPI and npm whilst also letting tests use a fake registry without making network requests.
 `Ecosystem` remains an enum because the supported ecosystems are a closed set, and exhaustive matches ensure each ecosystem handles every pipeline stage.
 
+### Timeouts and Retries
+
+There are timeout limits on each step: 10 seconds to connect, and 30 seconds for each partial read, with a backstop of 5 minutes for the whole connection.
+A slow but steady download of a large index keeps going, while a stalled connection fails.
+
+A lookup that fails in a way that is likely to be temporary is tried up to 3 times.
+Wullie waits up to 10 seconds; if a registry asks for longer, through a `Retry-After` header, its remaining lookups fail at once with a warning.
+
+A missing package or any other client error fails at once.
+
 ### Look-up Cache
 
 Raw index bodies are stored under `$XDG_CACHE_HOME/wullie/<ecosystem>/<index path>`.

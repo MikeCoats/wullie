@@ -10,17 +10,41 @@ mod rust;
 
 pub(crate) use cache::{Cache, CacheError, MAX_AGE};
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::OnceLock;
-use std::time::Duration;
+use std::thread;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// The largest index body read from a registry.
 ///
-/// ureq stops at 10 MiB by default, which some popular packages pass: npm's
-/// abbreviated document for `next` was 25 MB in November 2026, and grows
-/// with every canary release. This leaves plenty of room for growth while
-/// still stopping a misbehaving server from exhausting memory.
+/// ureq stops at 10 MiB by default, which some popular packages exceed. This
+/// leaves plenty of room for growth while still stopping a misbehaving server
+/// from exhausting memory.
 const MAX_BODY_SIZE: u64 = 64 * 1024 * 1024;
+
+/// How long a single read from a registry may take before the lookup fails.
+///
+/// This restarts with every read, so a slow but steady download of a large
+/// index keeps going, while a stalled connection fails.
+const READ_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// How long connecting to a registry, including TLS, may take.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// An upper bound on one attempt at a lookup, as a backstop in case a
+/// registry keeps sending data just fast enough to beat [`READ_TIMEOUT`].
+const ATTEMPT_TIMEOUT: Duration = Duration::from_mins(5);
+
+/// How many times a lookup is tried before its failure is reported.
+const MAX_ATTEMPTS: u32 = 3;
+
+/// The longest Wullie waits for a registry before sending a request.
+///
+/// A registry that asks, with `Retry-After`, for a longer wait is not sent
+/// anything more during this run; its lookups fail with that wait instead.
+const MAX_WAIT: Duration = Duration::from_secs(10);
 
 use crate::project::Ecosystem;
 
@@ -91,14 +115,22 @@ pub(crate) struct HttpRegistry {
     agent: ureq::Agent,
     cache: Option<Cache>,
     cache_write_error: OnceLock<CacheError>,
+    /// When each registry, by host, last asked not to be sent requests until.
+    not_before: RefCell<HashMap<String, Instant>>,
 }
 
 impl HttpRegistry {
-    /// Creates a client with a global request timeout and Wullie user agent.
+    /// Creates a client with Wullie's timeouts and user agent.
+    ///
+    /// Error statuses are returned as responses rather than errors, so
+    /// `fetch` can read a `Retry-After` header before retrying.
     pub(crate) fn new(cache: Option<Cache>) -> Self {
         let config = ureq::Agent::config_builder()
-            .timeout_global(Some(Duration::from_secs(30)))
             .https_only(true)
+            .http_status_as_error(false)
+            .timeout_connect(Some(CONNECT_TIMEOUT))
+            .timeout_per_read(Some(READ_TIMEOUT))
+            .timeout_per_call(Some(ATTEMPT_TIMEOUT))
             .user_agent(format!("wullie/{}", env!("CARGO_PKG_VERSION")))
             .build();
 
@@ -106,6 +138,7 @@ impl HttpRegistry {
             agent: config.into(),
             cache,
             cache_write_error: OnceLock::new(),
+            not_before: RefCell::default(),
         }
     }
 
@@ -125,25 +158,181 @@ impl HttpRegistry {
         }
     }
 
+    /// Fetches `url`, retrying failures that are likely to be temporary.
+    ///
+    /// A dropped connection, a timeout, a rate limit (429) or a server error
+    /// (500, 502, 503, 504, or 408) is tried again, up to [`MAX_ATTEMPTS`]
+    /// times in all. Anything else, such as a missing package, fails at once.
+    ///
+    /// A `Retry-After` header is always respected: no request is sent to that
+    /// registry before the time it gives, for this lookup or any later one.
+    /// Without one, attempts are spaced by [`backoff`].
     fn fetch(&self, url: &str, accept: Option<&str>) -> Result<String, RegistryError> {
+        let host = host(url);
+        let mut attempt = 1;
+        loop {
+            self.wait_for(&host)?;
+            let failure = match self.fetch_once(url, accept) {
+                Ok(body) => return Ok(body),
+                Err(failure) => failure,
+            };
+            if let Some(retry_after) = failure.retry_after {
+                self.not_before
+                    .borrow_mut()
+                    .insert(host.clone(), Instant::now() + retry_after);
+            }
+            if !failure.retryable || attempt == MAX_ATTEMPTS {
+                return Err(failure.error);
+            }
+            if failure.retry_after.is_none() {
+                thread::sleep(backoff(attempt));
+            }
+            attempt += 1;
+        }
+    }
+
+    /// Waits until `host` may be sent a request, or fails if its registry
+    /// asked for a longer wait than [`MAX_WAIT`].
+    fn wait_for(&self, host: &str) -> Result<(), RegistryError> {
+        let Some(until) = self.not_before.borrow().get(host).copied() else {
+            return Ok(());
+        };
+        let wait = until.saturating_duration_since(Instant::now());
+        if wait > MAX_WAIT {
+            return Err(RegistryError::rate_limited(wait));
+        }
+        thread::sleep(wait);
+        Ok(())
+    }
+
+    fn fetch_once(&self, url: &str, accept: Option<&str>) -> Result<String, Failure> {
         let request = self.agent.get(url);
         let request = if let Some(accept) = accept {
             request.header("Accept", accept)
         } else {
             request
         };
-        let response = match request.call() {
-            Ok(response) => response,
-            Err(ureq::Error::StatusCode(404)) => return Err(RegistryError::not_found()),
-            Err(error) => return Err(RegistryError::http(error)),
-        };
+        let response = request.call().map_err(Failure::from)?;
+        let status = response.status().as_u16();
+        if !response.status().is_success() {
+            let retry_after = response
+                .headers()
+                .get("Retry-After")
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| parse_retry_after(value, SystemTime::now()));
+            return Err(Failure {
+                retry_after,
+                ..Failure::from(ureq::Error::StatusCode(status))
+            });
+        }
         response
             .into_body()
             .with_config()
             .limit(MAX_BODY_SIZE)
             .read_to_string()
-            .map_err(RegistryError::http)
+            .map_err(Failure::from)
     }
+}
+
+/// A failed attempt at a lookup, and whether it is worth trying again.
+struct Failure {
+    error: RegistryError,
+    retryable: bool,
+    retry_after: Option<Duration>,
+}
+
+impl From<ureq::Error> for Failure {
+    fn from(error: ureq::Error) -> Self {
+        let retryable = match &error {
+            ureq::Error::StatusCode(status) => matches!(status, 408 | 429 | 500 | 502 | 503 | 504),
+            ureq::Error::Io(_) | ureq::Error::ConnectionFailed | ureq::Error::Timeout(_) => true,
+            _ => false,
+        };
+        let error = if matches!(error, ureq::Error::StatusCode(404)) {
+            RegistryError::not_found()
+        } else {
+            RegistryError::http(error)
+        };
+        Self {
+            error,
+            retryable,
+            retry_after: None,
+        }
+    }
+}
+
+/// The registry a URL belongs to, by host and port.
+fn host(url: &str) -> String {
+    url.parse::<ureq::http::Uri>()
+        .ok()
+        .and_then(|uri| uri.authority().map(ToString::to_string))
+        .unwrap_or_else(|| url.to_owned())
+}
+
+/// How long to wait before the attempt after `attempt` when the registry
+/// didn't say: one second, then two.
+fn backoff(attempt: u32) -> Duration {
+    Duration::from_secs(1 << (attempt - 1).min(4))
+}
+
+/// Reads a `Retry-After` header as a wait from `now`.
+///
+/// The header is either a number of seconds or an HTTP date, which is in the
+/// past or present when there is nothing to wait for. A value in neither form
+/// is ignored, and the usual [`backoff`] applies.
+fn parse_retry_after(value: &str, now: SystemTime) -> Option<Duration> {
+    let value = value.trim();
+    if let Ok(seconds) = value.parse() {
+        return Some(Duration::from_secs(seconds));
+    }
+    let date = parse_http_date(value)?;
+    Some(date.duration_since(now).unwrap_or(Duration::ZERO))
+}
+
+/// Parses an HTTP date in the IMF-fixdate form every server must send, such
+/// as `Sun, 06 Nov 1994 08:49:37 GMT` (RFC 9110, section 5.6.7).
+fn parse_http_date(value: &str) -> Option<SystemTime> {
+    const MONTHS: [&str; 12] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+
+    let (_weekday, rest) = value.split_once(", ")?;
+    let mut parts = rest.split(' ');
+    let day: i64 = parts.next()?.parse().ok()?;
+    let month_name = parts.next()?;
+    let month = MONTHS.iter().position(|name| *name == month_name)?;
+    let year: i64 = parts.next()?.parse().ok()?;
+    let mut time = parts.next()?.split(':');
+    let hour: i64 = time.next()?.parse().ok()?;
+    let minute: i64 = time.next()?.parse().ok()?;
+    let second: i64 = time.next()?.parse().ok()?;
+    if parts.next()? != "GMT"
+        || parts.next().is_some()
+        || time.next().is_some()
+        || !(1..=31).contains(&day)
+        || hour > 23
+        || minute > 59
+        || second > 60
+    {
+        return None;
+    }
+
+    let month = i64::try_from(month).ok()? + 1;
+    let days = days_since_epoch(year, month, day);
+    let seconds = u64::try_from(days * 86_400 + hour * 3_600 + minute * 60 + second).ok()?;
+    Some(UNIX_EPOCH + Duration::from_secs(seconds))
+}
+
+/// Days from 1970-01-01 to a date in the proleptic Gregorian calendar, using
+/// Howard Hinnant's `days_from_civil` algorithm.
+fn days_since_epoch(year: i64, month: i64, day: i64) -> i64 {
+    let year = if month <= 2 { year - 1 } else { year };
+    let era = year.div_euclid(400);
+    let year_of_era = year - era * 400;
+    let month_from_march = (month + 9) % 12;
+    let day_of_year = (153 * month_from_march + 2) / 5 + day - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    era * 146_097 + day_of_era - 719_468
 }
 
 impl Registry for HttpRegistry {
@@ -183,6 +372,8 @@ enum RegistryErrorKind {
     InvalidName,
     #[error("registry request failed")]
     Http(#[source] ureq::Error),
+    #[error("registry asked not to be sent requests for another {0} seconds")]
+    RateLimited(u64),
     #[error("cannot parse registry index data")]
     Index(#[source] serde_json::Error),
 }
@@ -190,6 +381,13 @@ enum RegistryErrorKind {
 impl RegistryError {
     pub(crate) fn not_found() -> Self {
         Self(RegistryErrorKind::NotFound)
+    }
+
+    /// The registry asked, with `Retry-After`, for a longer wait than Wullie
+    /// makes, shown in whole seconds rounded up.
+    fn rate_limited(wait: Duration) -> Self {
+        let seconds = wait.as_secs() + u64::from(wait.subsec_nanos() > 0);
+        Self(RegistryErrorKind::RateLimited(seconds))
     }
 
     fn invalid_name() -> Self {
@@ -207,36 +405,211 @@ impl RegistryError {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::RefCell;
     use std::error::Error;
     use std::net::TcpListener;
     use std::path::Path;
-    use std::sync::OnceLock;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, OnceLock};
+    use std::time::{Duration, Instant, UNIX_EPOCH};
 
     use tempfile::TempDir;
 
     use crate::project::Ecosystem;
 
-    use super::{Cache, HttpRegistry, MAX_AGE, Registry, Release, accept, index_path, url};
+    use super::{
+        Cache, HttpRegistry, MAX_AGE, READ_TIMEOUT, Registry, Release, accept, backoff, index_path,
+        parse_http_date, parse_retry_after, url,
+    };
 
-    /// Serves one HTTP response with `body` on a local port, returning its URL.
-    fn serve_once(body: Vec<u8>) -> String {
+    /// Serves `responses` on a local port, one per connection in order,
+    /// returning its URL and a count of the requests received.
+    fn serve(responses: Vec<Vec<u8>>) -> (String, Arc<AtomicUsize>) {
         use std::io::{BufRead, BufReader, Write};
 
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}/", listener.local_addr().unwrap());
+        let requests = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&requests);
         std::thread::spawn(move || {
-            let (stream, _) = listener.accept().unwrap();
-            let mut reader = BufReader::new(stream);
-            let mut line = String::new();
-            while reader.read_line(&mut line).unwrap() > 2 {
-                line.clear();
+            for response in responses {
+                let (stream, _) = listener.accept().unwrap();
+                let mut reader = BufReader::new(stream);
+                let mut line = String::new();
+                while reader.read_line(&mut line).unwrap() > 2 {
+                    line.clear();
+                }
+                counter.fetch_add(1, Ordering::SeqCst);
+                reader.into_inner().write_all(&response).unwrap();
             }
-            let mut stream = reader.into_inner();
-            let header = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", body.len());
-            stream.write_all(header.as_bytes()).unwrap();
-            stream.write_all(&body).unwrap();
         });
-        url
+        (url, requests)
+    }
+
+    /// An HTTP response that closes its connection, so each request in a
+    /// test arrives on a new one.
+    fn response(status: &str, headers: &str, body: &[u8]) -> Vec<u8> {
+        let mut response = format!(
+            "HTTP/1.1 {status}\r\nConnection: close\r\nContent-Length: {}\r\n{headers}\r\n",
+            body.len()
+        )
+        .into_bytes();
+        response.extend_from_slice(body);
+        response
+    }
+
+    /// A registry that talks plain HTTP to local test servers, configured
+    /// like the real one otherwise.
+    fn local_registry() -> HttpRegistry {
+        HttpRegistry {
+            agent: ureq::Agent::config_builder()
+                .http_status_as_error(false)
+                .build()
+                .into(),
+            cache: None,
+            cache_write_error: OnceLock::new(),
+            not_before: RefCell::default(),
+        }
+    }
+
+    #[test]
+    fn the_agent_reports_error_statuses_as_responses_and_times_out_reads() {
+        let registry = HttpRegistry::new(None);
+        let config = registry.agent.config();
+
+        assert!(!config.http_status_as_error());
+        assert_eq!(config.timeout_per_read(), Some(READ_TIMEOUT));
+    }
+
+    #[test]
+    fn retries_a_temporary_failure() {
+        let (url, requests) = serve(vec![
+            response("503 Service Unavailable", "Retry-After: 0\r\n", b""),
+            response("200 OK", "", b"body"),
+        ]);
+
+        let body = local_registry().fetch(&url, None).unwrap();
+
+        assert_eq!(body, "body");
+        assert_eq!(requests.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn gives_up_after_the_last_attempt() {
+        let busy = response("429 Too Many Requests", "Retry-After: 0\r\n", b"");
+        let (url, requests) = serve(vec![busy; 3]);
+
+        let error = local_registry().fetch(&url, None).unwrap_err();
+
+        assert_eq!(error.to_string(), "registry request failed");
+        assert_eq!(error.source().unwrap().to_string(), "http status: 429");
+        assert_eq!(requests.load(Ordering::SeqCst), 3);
+    }
+
+    #[test]
+    fn does_not_retry_a_missing_package_or_a_client_error() {
+        for (status, message) in [
+            ("404 Not Found", "package was not found in the registry"),
+            ("400 Bad Request", "registry request failed"),
+        ] {
+            let (url, requests) = serve(vec![response(status, "", b"")]);
+
+            let error = local_registry().fetch(&url, None).unwrap_err();
+
+            assert_eq!(error.to_string(), message);
+            assert_eq!(requests.load(Ordering::SeqCst), 1, "{status}");
+        }
+    }
+
+    #[test]
+    fn does_not_retry_sooner_than_retry_after_allows() {
+        let (url, requests) = serve(vec![response(
+            "503 Service Unavailable",
+            "Retry-After: 60\r\n",
+            b"",
+        )]);
+        let registry = local_registry();
+
+        let error = registry.fetch(&url, None).unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "registry asked not to be sent requests for another 60 seconds"
+        );
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
+
+        // Later lookups on the same registry aren't sent either.
+        let error = registry.fetch(&url, None).unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .starts_with("registry asked not to be sent")
+        );
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn waits_out_a_short_retry_after_before_retrying() {
+        let (url, requests) = serve(vec![
+            response("429 Too Many Requests", "Retry-After: 1\r\n", b""),
+            response("200 OK", "", b"body"),
+        ]);
+        let started = Instant::now();
+
+        let body = local_registry().fetch(&url, None).unwrap();
+
+        assert_eq!(body, "body");
+        assert_eq!(requests.load(Ordering::SeqCst), 2);
+        assert!(started.elapsed() >= Duration::from_secs(1));
+    }
+
+    #[test]
+    fn reads_retry_after_as_seconds_or_an_http_date() {
+        let now = UNIX_EPOCH + Duration::from_secs(784_111_777);
+
+        assert_eq!(parse_retry_after(" 5 ", now), Some(Duration::from_secs(5)));
+        assert_eq!(
+            parse_retry_after("Sun, 06 Nov 1994 08:50:07 GMT", now),
+            Some(Duration::from_secs(30))
+        );
+        assert_eq!(
+            parse_retry_after("Sun, 06 Nov 1994 08:00:00 GMT", now),
+            Some(Duration::ZERO)
+        );
+        assert_eq!(parse_retry_after("soon", now), None);
+    }
+
+    #[test]
+    fn parses_imf_fixdates() {
+        assert_eq!(
+            parse_http_date("Sun, 06 Nov 1994 08:49:37 GMT"),
+            Some(UNIX_EPOCH + Duration::from_secs(784_111_777))
+        );
+        assert_eq!(
+            parse_http_date("Thu, 01 Jan 1970 00:00:00 GMT"),
+            Some(UNIX_EPOCH)
+        );
+        assert_eq!(
+            parse_http_date("Tue, 29 Feb 2028 23:59:59 GMT"),
+            Some(UNIX_EPOCH + Duration::from_secs(1_835_481_599))
+        );
+        for invalid in [
+            "Sun, 06 Nov 1994 08:49:37 UTC",
+            "Sun, 06 Foo 1994 08:49:37 GMT",
+            "Sun, 32 Nov 1994 08:49:37 GMT",
+            "Sun, 06 Nov 1994 24:00:00 GMT",
+            "Sunday, 06-Nov-94 08:49:37 GMT",
+            "Sun Nov  6 08:49:37 1994",
+        ] {
+            assert_eq!(parse_http_date(invalid), None, "{invalid}");
+        }
+    }
+
+    #[test]
+    fn backs_off_one_second_then_two() {
+        assert_eq!(backoff(1), Duration::from_secs(1));
+        assert_eq!(backoff(2), Duration::from_secs(2));
     }
 
     #[test]
@@ -265,16 +638,9 @@ mod tests {
     #[test]
     fn reads_bodies_larger_than_the_ureq_default_limit() {
         let size = 11 * 1024 * 1024;
-        let url = serve_once(vec![b'a'; size]);
-        // The test server is plain HTTP, and the body limit is applied in
-        // `fetch` rather than by the agent, so a default agent will do.
-        let registry = HttpRegistry {
-            agent: ureq::Agent::config_builder().build().into(),
-            cache: None,
-            cache_write_error: OnceLock::new(),
-        };
+        let (url, _) = serve(vec![response("200 OK", "", &vec![b'a'; size])]);
 
-        let body = registry.fetch(&url, None).unwrap();
+        let body = local_registry().fetch(&url, None).unwrap();
 
         assert_eq!(body.len(), size);
     }
@@ -367,13 +733,10 @@ mod tests {
         cache
             .put(Path::new("rust/se/rd/serde"), "{\"vers\":")
             .unwrap();
-        // Send requests through a proxy port nobody is listening on, so the
-        // fetch fails at once without touching the network.
-        let closed_port = TcpListener::bind("127.0.0.1:0")
-            .unwrap()
-            .local_addr()
-            .unwrap();
-        let proxy = ureq::Proxy::new(&format!("http://{closed_port}")).unwrap();
+        // Send requests through a local proxy that refuses them, so the fetch
+        // fails at once, without retrying or touching the network.
+        let (proxy_url, _) = serve(vec![response("403 Forbidden", "", b"")]);
+        let proxy = ureq::Proxy::new(proxy_url.trim_end_matches('/')).unwrap();
         let registry = HttpRegistry {
             agent: ureq::Agent::config_builder()
                 .proxy(Some(proxy))
@@ -381,6 +744,7 @@ mod tests {
                 .into(),
             cache: Some(cache),
             cache_write_error: OnceLock::new(),
+            not_before: RefCell::default(),
         };
 
         let error = registry.releases(Ecosystem::Rust, "serde").unwrap_err();
