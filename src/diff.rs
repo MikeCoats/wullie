@@ -5,7 +5,6 @@
 //! unified diff.
 
 use std::fmt::Write as _;
-use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -54,7 +53,7 @@ pub(crate) fn manifest_diffs(root: &Path, projects: &[ProjectUpdates]) -> DiffFi
 
     for project_updates in projects {
         let manifest = project_updates.project.manifest();
-        let contents = match fs::read_to_string(manifest) {
+        let contents = match project_updates.project.read_manifest() {
             Ok(contents) => contents,
             Err(source) => {
                 findings.errors.push(DiffError::Read {

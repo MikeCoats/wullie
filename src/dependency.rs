@@ -5,7 +5,6 @@
 //! declared dependencies and their version requirements.
 
 use std::collections::HashSet;
-use std::fs;
 use std::io;
 use std::path::PathBuf;
 
@@ -77,7 +76,7 @@ pub(crate) fn find_dependencies(projects: &[Project]) -> DependencyFindings {
 
     for project in projects {
         let path = project.manifest().to_path_buf();
-        let contents = match fs::read_to_string(&path) {
+        let contents = match project.read_manifest() {
             Ok(contents) => contents,
             Err(source) => {
                 findings.errors.push(ManifestError::Read { path, source });

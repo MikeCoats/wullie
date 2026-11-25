@@ -6,7 +6,7 @@ use std::ffi::OsStr;
 use semver::{Version, VersionReq};
 use toml_edit::{DocumentMut, Item, Value};
 
-use super::restore_line_endings;
+use super::restore_layout;
 use crate::dependency::{Dependency, ParseError};
 use crate::registry::Release;
 use crate::update::{self, CompareError, Outdated, Update};
@@ -97,7 +97,7 @@ pub(super) fn pin(contents: &str, updates: &[Update]) -> Result<String, ParseErr
         pin_dependency_table("workspace.dependencies", workspace_dependencies, updates)?;
     }
 
-    Ok(restore_line_endings(contents, &document.to_string()))
+    Ok(restore_layout(contents, &document.to_string()))
 }
 
 fn pin_dependency_table(
@@ -370,6 +370,15 @@ shared = "3"
             pinned,
             "[package]\r\nname = \"a\"\r\n\r\n[dependencies]\r\nserde = \"=1.0.229\" # c\r\nanyhow = \"1\"\r\n"
         );
+    }
+
+    #[test]
+    fn pins_keep_a_byte_order_mark() {
+        let contents = "\u{feff}[dependencies]\nserde = \"1\"\n";
+
+        let pinned = pin(contents, &[update("serde", "1", "1.0.229")]).unwrap();
+
+        assert_eq!(pinned, "\u{feff}[dependencies]\nserde = \"=1.0.229\"\n");
     }
 
     #[test]

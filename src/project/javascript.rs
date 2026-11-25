@@ -11,6 +11,7 @@ use serde::de::value::MapAccessDeserializer;
 use serde::de::{DeserializeOwned, Error as _, IgnoredAny, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer};
 
+use super::split_bom;
 use crate::dependency::{Dependency, ParseError};
 use crate::registry::Release;
 use crate::update::{self, CompareError, Outdated, Update};
@@ -118,6 +119,7 @@ const FIELDS: &[&str] = &[
 
 /// Parses registry dependencies from the supported `package.json` fields.
 pub(super) fn dependencies(contents: &str) -> Result<Vec<Dependency>, ParseError> {
+    let (_, contents) = split_bom(contents);
     let document = serde_json::from_str::<PackageJson>(contents).map_err(ParseError::json)?;
     let mut dependencies = Vec::new();
 
@@ -144,6 +146,7 @@ pub(super) fn dependencies(contents: &str) -> Result<Vec<Dependency>, ParseError
 pub(super) fn pin(contents: &str, updates: &[Update]) -> Result<String, ParseError> {
     // Report malformed manifests exactly as the Dependency Finder does.
     dependencies(contents)?;
+    let (bom, contents) = split_bom(contents);
 
     let mut replacements = Vec::new();
     let mut scanner = Scanner::new(contents);
@@ -161,7 +164,8 @@ pub(super) fn pin(contents: &str, updates: &[Update]) -> Result<String, ParseErr
         })
     })?;
 
-    let mut pinned = String::with_capacity(contents.len());
+    let mut pinned = String::with_capacity(bom.len() + contents.len());
+    pinned.push_str(bom);
     let mut end = 0;
     for (span, replacement) in replacements {
         pinned.push_str(&contents[end..span.start]);
@@ -661,6 +665,20 @@ mod tests {
         assert_eq!(
             pin(contents, &updates).unwrap(),
             "{\n\t\"version\" : 1.5e3,\n\t\"scripts\": {\"dependencies\": \"^1\"},\n\t\"nested\": [{\"dependencies\": {\"dep\": \"^1\"}}, null, true],\n\t\"dependencies\" : {\n\t\t\"dep\"  :  \"1.4.0\" ,\n\t\t\"other\": \"^2\",\n\t\t\"local\": \"file:../local\",\n\t\t\"escaped\\u0021\": \"3.1.0\"\n\t}\n}"
+        );
+    }
+
+    #[test]
+    fn reads_and_pins_a_manifest_with_a_byte_order_mark() {
+        let contents = "\u{feff}{\"dependencies\": {\"left-pad\": \"^1.0.0\"}}\n";
+
+        assert_eq!(
+            dependencies(contents).unwrap(),
+            vec![Dependency::new("left-pad", "^1.0.0")]
+        );
+        assert_eq!(
+            pin(contents, &[update("left-pad", "^1.0.0", "1.3.0")]).unwrap(),
+            "\u{feff}{\"dependencies\": {\"left-pad\": \"1.3.0\"}}\n"
         );
     }
 

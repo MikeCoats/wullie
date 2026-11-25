@@ -9,6 +9,8 @@ mod python;
 mod rust;
 
 use std::ffi::OsStr;
+use std::fs::File;
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
 use strum::{Display, EnumIter, IntoEnumIterator};
@@ -177,26 +179,74 @@ impl Project {
     pub(crate) fn manifest(&self) -> &Path {
         &self.manifest
     }
+
+    /// Reads the manifest, refusing one larger than [`MAX_MANIFEST_SIZE`].
+    pub(crate) fn read_manifest(&self) -> io::Result<String> {
+        read_limited(&self.manifest, MAX_MANIFEST_SIZE)
+    }
 }
 
-/// Keeps line endings consistent between `edited` and `original`.
+/// The largest manifest Wullie reads, 16 MiB.
+///
+/// Real manifests are a few kilobytes, but the tree being searched may be
+/// untrusted, and a huge file with a manifest's name would otherwise be read
+/// whole into memory.
+const MAX_MANIFEST_SIZE: u64 = 16 * 1024 * 1024;
+
+/// Reads `path` as UTF-8, failing if it holds more than `limit` bytes.
+///
+/// Only `limit + 1` bytes are ever read, so the check holds even for a file
+/// that grows while it is read.
+fn read_limited(path: &Path, limit: u64) -> io::Result<String> {
+    let mut bytes = Vec::new();
+    File::open(path)?
+        .take(limit.saturating_add(1))
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > limit {
+        return Err(io::Error::new(
+            io::ErrorKind::FileTooLarge,
+            format!("manifest is larger than {} MiB", limit / (1024 * 1024)),
+        ));
+    }
+    String::from_utf8(bytes).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+}
+
+/// Keeps the line endings and any byte-order mark of `original` in `edited`.
 ///
 /// `toml_edit` uses `\n`, regardless of the source strings. Without this step,
 /// a CRLF-rich manifest would report diffs on every line due to these line
 /// ending changes. This ensures the diff is update focused and noise-free.
-pub(crate) fn restore_line_endings(original: &str, edited: &str) -> String {
+///
+/// `toml_edit` also drops a leading byte-order mark, which would otherwise
+/// show up as an unrelated change to the first line.
+pub(crate) fn restore_layout(original: &str, edited: &str) -> String {
+    let (bom, original) = split_bom(original);
+    let (_, edited) = split_bom(edited);
+    let mut restored = String::with_capacity(bom.len() + edited.len());
+    restored.push_str(bom);
+
     let original_lines = original.split_inclusive('\n');
     let edited_lines = edited.split_inclusive('\n');
     if original_lines.clone().count() != edited_lines.clone().count() {
-        return edited.to_owned();
+        restored.push_str(edited);
+        return restored;
     }
 
-    let mut restored = String::with_capacity(edited.len());
     for (original_line, edited_line) in original_lines.zip(edited_lines) {
         restored.push_str(split_line_ending(edited_line).0);
         restored.push_str(split_line_ending(original_line).1);
     }
     restored
+}
+
+/// Splits off a leading UTF-8 byte-order mark, returning it (or `""`) and the
+/// rest of `contents`.
+///
+/// Editors on Windows often add one. TOML allows it, and npm skips it in
+/// `package.json`, so Wullie accepts and keeps it too.
+pub(crate) fn split_bom(contents: &str) -> (&str, &str) {
+    let rest = contents.strip_prefix('\u{feff}').unwrap_or(contents);
+    contents.split_at(contents.len() - rest.len())
 }
 
 /// Splits a line into its content and its ending: `\r\n`, `\n`, or nothing.
@@ -218,7 +268,7 @@ mod tests {
 
     use crate::update::Outdated;
 
-    use super::{Ecosystem, Project, find_projects, restore_line_endings};
+    use super::{Ecosystem, Project, find_projects, read_limited, restore_layout, split_bom};
 
     fn create_manifest(path: &Path) {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -232,7 +282,7 @@ mod tests {
     #[test]
     fn restores_crlf_endings() {
         assert_eq!(
-            restore_line_endings("a = 1\r\nb = 2\r\n", "a = 1\nb = 3\n"),
+            restore_layout("a = 1\r\nb = 2\r\n", "a = 1\nb = 3\n"),
             "a = 1\r\nb = 3\r\n"
         );
     }
@@ -240,34 +290,83 @@ mod tests {
     #[test]
     fn restores_mixed_endings_line_by_line() {
         assert_eq!(
-            restore_line_endings("a\r\nb\nc\r\n", "a\nB\nc\n"),
+            restore_layout("a\r\nb\nc\r\n", "a\nB\nc\n"),
             "a\r\nB\nc\r\n"
         );
     }
 
     #[test]
     fn restores_a_missing_final_newline() {
-        assert_eq!(restore_line_endings("a\nb", "a\nB\n"), "a\nB");
-        assert_eq!(restore_line_endings("a\r\nb", "a\nB\n"), "a\r\nB");
+        assert_eq!(restore_layout("a\nb", "a\nB\n"), "a\nB");
+        assert_eq!(restore_layout("a\r\nb", "a\nB\n"), "a\r\nB");
     }
 
     #[test]
     fn keeps_crlf_already_present_in_the_edited_text() {
         assert_eq!(
-            restore_line_endings("s = \"\"\"\r\nx\"\"\"\r\n", "s = \"\"\"\r\nx\"\"\"\n"),
+            restore_layout("s = \"\"\"\r\nx\"\"\"\r\n", "s = \"\"\"\r\nx\"\"\"\n"),
             "s = \"\"\"\r\nx\"\"\"\r\n"
         );
     }
 
     #[test]
     fn leaves_lf_text_unchanged() {
-        assert_eq!(restore_line_endings("a\nb\n", "a\nB\n"), "a\nB\n");
-        assert_eq!(restore_line_endings("", ""), "");
+        assert_eq!(restore_layout("a\nb\n", "a\nB\n"), "a\nB\n");
+        assert_eq!(restore_layout("", ""), "");
     }
 
     #[test]
     fn returns_edited_text_when_line_counts_differ() {
-        assert_eq!(restore_line_endings("a\r\nb\r\n", "a\n"), "a\n");
+        assert_eq!(restore_layout("a\r\nb\r\n", "a\n"), "a\n");
+    }
+
+    #[test]
+    fn restores_a_byte_order_mark() {
+        assert_eq!(
+            restore_layout("\u{feff}a\r\nb\r\n", "a\nB\n"),
+            "\u{feff}a\r\nB\r\n"
+        );
+        assert_eq!(restore_layout("\u{feff}a\n", "\u{feff}A\n"), "\u{feff}A\n");
+        assert_eq!(restore_layout("a\n", "A\n"), "A\n");
+    }
+
+    #[test]
+    fn reads_a_manifest_up_to_the_limit() {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("Cargo.toml");
+        fs::write(&path, "12345678").unwrap();
+
+        assert_eq!(read_limited(&path, 8).unwrap(), "12345678");
+    }
+
+    #[test]
+    fn refuses_a_manifest_over_the_limit() {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("Cargo.toml");
+        fs::write(&path, vec![b'a'; 3 * 1024 * 1024 + 1]).unwrap();
+
+        let error = read_limited(&path, 3 * 1024 * 1024).unwrap_err();
+
+        assert_eq!(error.kind(), std::io::ErrorKind::FileTooLarge);
+        assert_eq!(error.to_string(), "manifest is larger than 3 MiB");
+    }
+
+    #[test]
+    fn refuses_a_manifest_that_is_not_utf8() {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("Cargo.toml");
+        fs::write(&path, b"\xff\xfe").unwrap();
+
+        let error = read_limited(&path, 8).unwrap_err();
+
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn splits_off_only_a_leading_byte_order_mark() {
+        assert_eq!(split_bom("\u{feff}{}"), ("\u{feff}", "{}"));
+        assert_eq!(split_bom("{}\u{feff}"), ("", "{}\u{feff}"));
+        assert_eq!(split_bom(""), ("", ""));
     }
 
     #[test]

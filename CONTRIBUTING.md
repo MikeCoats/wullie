@@ -102,6 +102,15 @@ Only a change to `cli` can break anything outside the binary, so other changes d
 Each stage uses `thiserror` for typed errors, and wraps errors from its dependencies in its own opaque types.
 Starting up the command uses `anyhow` to add context to its errors.
 
+## Untrusted Input
+
+The tree being searched may hold files from anyone, so Wullie treats manifests as untrusted.
+
+- Manifests larger than 16 MiB are skipped with a warning rather than read into memory.
+- A leading UTF-8 byte-order mark is accepted in every manifest and kept in the diff.
+- Everything written to stderr has its control characters escaped, other than tabs and newlines, and every line after the first is indented, so text from a manifest can't drive the terminal or pass as another warning.
+  The diff on stdout is left exactly as the manifests are, because `git apply` and `patch` need it unchanged.
+
 ## Pruning
 
 Wullie prunes the union of every ecosystem's build, cache and dependency directory names throughout the tree.

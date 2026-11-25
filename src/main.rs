@@ -145,7 +145,29 @@ fn chain(error: &dyn Error) -> String {
 }
 
 fn write_stderr(message: impl std::fmt::Display) {
+    let message = for_terminal(&message.to_string());
     let _ = writeln!(io::stderr().lock(), "{message}");
+}
+
+/// Makes a message safe to print to a terminal.
+///
+/// Messages hold names, requirements and paths from the tree being searched,
+/// which may be untrusted. Left raw, control characters could drive the
+/// terminal: retitle it, erase lines, or worse in some terminals. So every
+/// control character except tab and newline is written as a Rust escape such
+/// as `\u{1b}`, and each line after the first is indented, so a newline can't
+/// start a line that passes as another `Warning:` or `Error:`.
+fn for_terminal(message: &str) -> String {
+    let mut safe = String::with_capacity(message.len());
+    for character in message.chars() {
+        match character {
+            '\n' => safe.push_str("\n  "),
+            '\t' => safe.push('\t'),
+            character if character.is_control() => safe.extend(character.escape_debug()),
+            character => safe.push(character),
+        }
+    }
+    safe
 }
 
 fn start_path(arg: Option<PathBuf>) -> Result<PathBuf> {
@@ -166,7 +188,7 @@ fn start_path(arg: Option<PathBuf>) -> Result<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{chain, exit_status, start_path, write_diff};
+    use super::{chain, exit_status, for_terminal, start_path, write_diff};
     use std::io::{self, ErrorKind, Write};
     use std::{env, fs, path::PathBuf};
 
@@ -237,6 +259,28 @@ mod tests {
     fn chain_trims_trailing_newlines_from_multi_line_messages() {
         let error = Middle(io::Error::other("line one\nline two\n"));
         assert_eq!(chain(&error), "middle: line one\nline two");
+    }
+
+    #[test]
+    fn for_terminal_escapes_control_characters() {
+        assert_eq!(
+            for_terminal("cannot look up \u{1b}]0;title\u{7}\u{1b}[2Kevil"),
+            "cannot look up \\u{1b}]0;title\\u{7}\\u{1b}[2Kevil"
+        );
+        assert_eq!(for_terminal("\r\u{7f}\u{9b}"), "\\r\\u{7f}\\u{9b}");
+    }
+
+    #[test]
+    fn for_terminal_keeps_tabs_and_ordinary_text() {
+        assert_eq!(for_terminal("caf\u{e9}\tok"), "caf\u{e9}\tok");
+    }
+
+    #[test]
+    fn for_terminal_indents_continuation_lines() {
+        assert_eq!(
+            for_terminal("Warning: one\nWarning: forged"),
+            "Warning: one\n  Warning: forged"
+        );
     }
 
     #[test]

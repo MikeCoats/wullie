@@ -7,7 +7,7 @@ use std::str::FromStr;
 use pep440_rs::{Version, VersionSpecifiers};
 use toml_edit::{DocumentMut, Item};
 
-use super::restore_line_endings;
+use super::restore_layout;
 use crate::dependency::{Dependency, ParseError};
 use crate::registry::Release;
 use crate::update::{self, CompareError, Outdated, Update};
@@ -150,7 +150,7 @@ pub(super) fn pin(contents: &str, updates: &[Update]) -> Result<String, ParseErr
         }
     }
 
-    Ok(restore_line_endings(contents, &document.to_string()))
+    Ok(restore_layout(contents, &document.to_string()))
 }
 
 fn pin_requirements(array: &mut toml_edit::Array, updates: &[Update]) {
@@ -289,6 +289,18 @@ mod tests {
             version: version.to_owned(),
             yanked,
         }
+    }
+
+    #[test]
+    fn pins_keep_a_byte_order_mark() {
+        let contents = "\u{feff}[project]\ndependencies = [\"requests>=2\"]\n";
+
+        let pinned = pin(contents, &[update("requests", ">=2", "2.32.3")]).unwrap();
+
+        assert_eq!(
+            pinned,
+            "\u{feff}[project]\ndependencies = [\"requests==2.32.3\"]\n"
+        );
     }
 
     #[test]

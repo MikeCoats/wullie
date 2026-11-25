@@ -50,6 +50,12 @@ Wullie reads files it didn't write and data from the network, so most issues fal
   Wullie trusts index data from crates.io and PyPI.
   A malicious or tampered response that leads to unsafe behaviour or a misleading diff is in scope.
 
+- Terminal output.
+  
+  Warnings include names, requirements and paths from the searched tree.
+  A way to get raw control characters onto the terminal through them is in scope.
+  The diff on stdout reproduces manifest lines exactly, as `git diff` does, so their contents are out of scope there.
+
 - The look-up cache.
   
   Index bodies are written under `$XDG_CACHE_HOME/wullie/`.
