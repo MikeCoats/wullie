@@ -14,7 +14,7 @@ workspace = true
 
 [dependencies]
 anyhow = "1.0.105"
-clap = { version = "4.6.9", features = ["derive"] }
+clap = { version = "=4.6.10", features = ["derive"] }
 clap_complete = "4.6.12"
 clap_mangen = "0.3.4"
 wullie = { path = ".." }
