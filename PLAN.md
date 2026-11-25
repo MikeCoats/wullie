@@ -28,18 +28,18 @@ SPDX-License-Identifier: GPL-3.0-or-later
 - [ ] Bugs and Features
   - [ ] IPv6 Happy Eyeballs
 - [ ] Package
-  - [x] As a tar.gz
-  - [x] As a runnable crate
-  - [ ] As a dpkg
-- [ ] Repos
-  - [x] GitHub
-  - [x] GH Actions CI/CD
+  - [ ] As a tar.gz
     - [x] Linux x64
     - [ ] Linux ARM
     - [ ] Mac ARM
     - [ ] Windows x64
     - [ ] Linux MUSL
     - [ ] Mac x64
+  - [x] As a runnable crate
+  - [ ] As a dpkg
+- [ ] Repos
+  - [x] GitHub
+  - [x] GH Actions CI/CD
   - [ ] Codeberg
     - [ ] Repo
     - [ ] Repo mirroring

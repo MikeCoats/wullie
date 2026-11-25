@@ -9,7 +9,8 @@ on:
 
 # Actions are pinned to full commit SHAs, with their version in a comment, so
 # a moved or compromised tag can't change what runs. Tools are pinned to exact
-# versions for the same reason, and so CI only changes when we choose.
+# versions for the same reason, and so CI only changes when we choose. Runners
+# are named by OS version rather than `-latest` for that reason too.
 
 # Building code & dependencies from cargo can result in code execution, so we
 # should be careful about what we compile and where we do it. We default to
@@ -23,7 +24,7 @@ env:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -38,7 +39,7 @@ jobs:
 
   create:
     needs: check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
@@ -59,7 +60,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { target: x86_64-unknown-linux-gnu,  os: ubuntu-latest }
+          - { target: x86_64-unknown-linux-gnu,  os: ubuntu-24.04 }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -82,7 +83,7 @@ jobs:
 
   upload:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
@@ -97,7 +98,7 @@ jobs:
 
   publish:
     needs: upload
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: release
     permissions:
       contents: write
