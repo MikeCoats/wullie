@@ -15,10 +15,14 @@ jobs:
   ci:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - run: rustup toolchain install
-      - uses: taiki-e/install-action@just
-      - run: pipx install reuse
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: just@1.59.0
+      - run: pipx install reuse==6.3.0
       - run: just ci
 
   # Builds and tests on Windows. Formatting, licensing, packaging and the
@@ -29,11 +33,13 @@ jobs:
       # Check out with LF line endings, as on every other platform, rather
       # than Git for Windows' default of converting them to CRLF.
       - run: git config --global core.autocrlf false
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       # Installs the version and components named in rust-toolchain.toml.
       - run: rustup toolchain install
-      - uses: taiki-e/install-action@just
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: just@1.59.0
       - run: just lint
       - run: just test

@@ -22,6 +22,9 @@ SPDX-License-Identifier: GPL-3.0-or-later
   - [x] Rust Support
   - [x] Python Support
   - [x] JavaScript Support
+- [ ] Future Ecosystem Investigation
+  - [ ] .github/**/*.yml
+  - [ ] docker-compose.yml
 - [ ] Bugs and Features
   - [ ] IPv6 Happy Eyeballs
 - [ ] Package

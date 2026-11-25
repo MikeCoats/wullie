@@ -7,6 +7,10 @@ on:
   push:
     tags: ["v*"]
 
+# Actions are pinned to full commit SHAs, with their version in a comment, so
+# a moved or compromised tag can't change what runs. Tools are pinned to exact
+# versions for the same reason, and so CI only changes when we choose.
+
 # Building code & dependencies from cargo can result in code execution, so we
 # should be careful about what we compile and where we do it. We default to
 # read-only permissions for all jobs. We then elevate permissions ONLY for
@@ -21,7 +25,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - run: rustup toolchain install
@@ -38,7 +42,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Fetch the annotated tag
@@ -58,15 +62,17 @@ jobs:
           - { target: x86_64-unknown-linux-gnu,  os: ubuntu-latest }
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - run: rustup toolchain install --target ${{ matrix.target }}
-      - uses: taiki-e/install-action@just
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: just@1.59.0
       - run: just dist ${{ matrix.target }}
         env:
           TAR: ${{ runner.os == 'macOS' && 'gtar' || 'tar' }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-${{ matrix.target }}
           path: |
@@ -80,7 +86,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: dist-*
           path: dist
@@ -97,11 +103,11 @@ jobs:
       contents: write
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - run: rustup toolchain install
-      - uses: rust-lang/crates-io-auth-action@v1
+      - uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
         id: auth
       # We follow a similar security principle here, too. The check job has
       # already built this code with `cargo publish --dry-run`. Running publish
