@@ -36,7 +36,7 @@ use wullie::cli::Cli;
 use crate::dependency::find_dependencies;
 use crate::diff::manifest_diffs;
 use crate::project::find_projects;
-use crate::registry::{Cache, HttpRegistry, MAX_AGE};
+use crate::registry::{Cache, CacheError, HttpRegistry, MAX_AGE};
 use crate::update::find_updates;
 
 fn main() -> ExitCode {
@@ -74,13 +74,8 @@ fn main() -> ExitCode {
     }
     // Cache problems are notes rather than warnings: the results are still
     // complete, so they don't change the exit status.
-    if let Some(error) = registry.cache_write_error() {
-        write_stderr(format!("Note: {}", chain(error)));
-    }
-    if cache_unavailable {
-        write_stderr(
-            "Note: cannot determine user cache directory; registry lookups will not be cached",
-        );
+    for note in cache_notes(registry.cache_write_error(), cache_unavailable) {
+        write_stderr(note);
     }
 
     let output = write_diff(io::stdout().lock(), &diff_findings.diff);
@@ -127,6 +122,21 @@ fn write_diff(output: impl Write, diff: &str) -> io::Result<()> {
     let mut output = BufWriter::new(output);
     output.write_all(diff.as_bytes())?;
     output.flush()
+}
+
+/// The `Note:` lines for problems with the lookup cache.
+fn cache_notes(write_error: Option<&CacheError>, unavailable: bool) -> Vec<String> {
+    let mut notes = Vec::new();
+    if let Some(error) = write_error {
+        notes.push(format!("Note: {}", chain(error)));
+    }
+    if unavailable {
+        notes.push(
+            "Note: cannot determine user cache directory; registry lookups will not be cached"
+                .to_owned(),
+        );
+    }
+    notes
 }
 
 fn warn(error: &dyn Error) {
@@ -190,9 +200,13 @@ fn start_path(arg: Option<PathBuf>) -> Result<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{chain, exit_status, for_terminal, start_path, write_diff};
+    use super::{cache_notes, chain, exit_status, for_terminal, start_path, write_diff};
     use std::io::{self, ErrorKind, Write};
-    use std::{env, fs, path::PathBuf};
+    use std::{env, fs, path::Path, path::PathBuf};
+
+    use tempfile::TempDir;
+
+    use crate::registry::{Cache, MAX_AGE};
 
     struct ClosedPipe;
 
@@ -225,6 +239,28 @@ mod tests {
     #[test]
     fn clean_run_exits_zero() {
         assert_eq!(exit_status(false, &Ok(())), 0);
+    }
+
+    #[test]
+    fn cache_problems_are_notes() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("blocker"), "not a directory").unwrap();
+        let cache = Cache::new(temp.path().to_path_buf(), MAX_AGE);
+        let write_error = cache.put(Path::new("blocker/entry"), "body").unwrap_err();
+
+        assert_eq!(
+            cache_notes(Some(&write_error), true),
+            [
+                format!("Note: {}", chain(&write_error)),
+                "Note: cannot determine user cache directory; registry lookups will not be cached"
+                    .to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn no_cache_problems_give_no_notes() {
+        assert_eq!(cache_notes(None, false), Vec::<String>::new());
     }
 
     #[test]
