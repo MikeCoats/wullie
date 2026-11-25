@@ -39,16 +39,20 @@ pub(crate) fn files(
             !skip_dirs.iter().any(|name| entry.file_name() == *name)
         });
 
-    builder.build().flat_map(|entry| match entry {
-        Ok(entry) => {
-            let error = entry.error().cloned().map(WalkError).map(Err);
-            let file = entry
-                .file_type()
-                .is_some_and(|kind| kind.is_file())
-                .then(|| Ok(entry.into_path()));
-            error.into_iter().chain(file)
-        }
-        Err(error) => Some(Err(WalkError(error))).into_iter().chain(None),
+    builder.build().flat_map(|entry| {
+        // An entry can carry an error, from one of its ignore files, as well
+        // as a file, so each step of the walk yields up to two items.
+        let (error, file) = match entry {
+            Ok(entry) => {
+                let error = entry.error().cloned();
+                let is_file = entry.file_type().is_some_and(|kind| kind.is_file());
+                (error, is_file.then(|| entry.into_path()))
+            }
+            Err(error) => (Some(error), None),
+        };
+        [error.map(|error| Err(WalkError(error))), file.map(Ok)]
+            .into_iter()
+            .flatten()
     })
 }
 
