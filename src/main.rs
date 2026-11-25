@@ -23,7 +23,6 @@ mod walk;
 
 use std::env;
 use std::error::Error;
-use std::fs;
 use std::io::{self, BufWriter, ErrorKind, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -189,7 +188,9 @@ fn start_path(arg: Option<PathBuf>) -> Result<PathBuf> {
     };
 
     let path =
-        fs::canonicalize(&path).with_context(|| format!("cannot access {}", path.display()))?;
+        // `dunce` gives the plain `C:\…` form on Windows where it means the
+        // same, rather than `\\?\C:\…`, so warnings show familiar paths.
+        dunce::canonicalize(&path).with_context(|| format!("cannot access {}", path.display()))?;
 
     if !path.is_dir() {
         bail!("{} is not a directory", path.display());
@@ -331,7 +332,7 @@ mod tests {
         let current_dir = env::current_dir().unwrap();
         assert_eq!(
             start_path(None).unwrap(),
-            fs::canonicalize(current_dir).unwrap()
+            dunce::canonicalize(current_dir).unwrap()
         );
     }
 
@@ -340,8 +341,18 @@ mod tests {
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
         assert_eq!(
             start_path(Some(path.clone())).unwrap(),
-            fs::canonicalize(path).unwrap()
+            dunce::canonicalize(path).unwrap()
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn start_path_avoids_verbatim_windows_paths() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
+
+        let start = start_path(Some(path)).unwrap();
+
+        assert!(!start.to_string_lossy().starts_with(r"\\?\"), "{start:?}");
     }
 
     #[test]

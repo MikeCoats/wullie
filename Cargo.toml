@@ -23,6 +23,7 @@ pkg-fmt = "tgz"
 [dependencies]
 anyhow = "=1.0.105"
 clap = { version = "=4.6.9", features = ["derive", "wrap_help"] }
+dunce = "1.0.5"
 ignore = "=0.4.35"
 indexmap = { version = "2.14.2", features = ["serde"] }
 nodejs-semver = "7.0.0"
