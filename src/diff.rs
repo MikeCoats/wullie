@@ -253,12 +253,23 @@ mod tests {
             r#""a/x\ny\tz\r\a\b\v\f/Cargo.toml""#
         );
         assert_eq!(
-            header_name("a/", Path::new("say \"hi\"\\/Cargo.toml")),
-            r#""a/say \"hi\"\\/Cargo.toml""#
+            header_name("a/", Path::new("say \"hi\"/Cargo.toml")),
+            r#""a/say \"hi\"/Cargo.toml""#
         );
         assert_eq!(
             header_name("a/", Path::new("del\u{7f}\u{1b}/Cargo.toml")),
             r#""a/del\177\033/Cargo.toml""#
+        );
+    }
+
+    /// A backslash is an ordinary character in a Unix file name, but a path
+    /// separator on Windows, which the Windows-only test covers.
+    #[cfg(unix)]
+    #[test]
+    fn header_name_escapes_backslashes_in_names() {
+        assert_eq!(
+            header_name("a/", Path::new("back\\slash/Cargo.toml")),
+            r#""a/back\\slash/Cargo.toml""#
         );
     }
 

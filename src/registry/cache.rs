@@ -441,7 +441,15 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains(&temp.path().join(key).display().to_string())
+                // Joined part by part, so the separators match on Windows too.
+                .contains(
+                    &temp
+                        .path()
+                        .join("blocker")
+                        .join("entry")
+                        .display()
+                        .to_string()
+                )
         );
         assert!(error.source().is_some());
     }

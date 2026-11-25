@@ -787,7 +787,9 @@ mod tests {
 
         registry.store(Path::new("blocker/first"), "first");
         let first_error = registry.cache_write_error().unwrap().to_string();
-        assert!(first_error.contains(&temp.path().join("blocker/first").display().to_string()));
+        // Joined part by part, so the separators match on Windows too.
+        let first_path = temp.path().join("blocker").join("first");
+        assert!(first_error.contains(&first_path.display().to_string()));
 
         registry.store(Path::new("blocker/second"), "second");
         assert_eq!(
