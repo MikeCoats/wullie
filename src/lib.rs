@@ -238,7 +238,7 @@ mod tests {
         let findings = find_projects(temp.path());
 
         assert!(findings.errors.is_empty());
-        assert!(findings.projects.is_empty());
+        assert!(findings.projects.is_empty(), "{:?}", findings.projects);
     }
 
     #[test]
@@ -289,7 +289,7 @@ mod tests {
         let findings = find_projects(temp.path());
 
         assert!(findings.errors.is_empty());
-        assert!(findings.projects.is_empty());
+        assert!(findings.projects.is_empty(), "{:?}", findings.projects);
     }
 
     #[test]
@@ -498,7 +498,7 @@ mod tests {
 
         let findings = find_dependencies(&[project(Ecosystem::Rust, &manifest)]);
 
-        assert!(findings.projects.is_empty());
+        assert!(findings.projects.is_empty(), "{:?}", findings.projects);
         assert!(findings.errors.is_empty());
     }
 

@@ -29,7 +29,7 @@ impl CacheError {
 }
 
 /// How long a cached registry lookup is used before it is fetched again.
-pub const MAX_AGE: Duration = Duration::from_secs(4 * 60 * 60);
+pub const MAX_AGE: Duration = Duration::from_hours(4);
 
 /// An on-disk cache of raw registry index bodies.
 ///
@@ -389,7 +389,7 @@ mod tests {
         let key = Path::new("rust/1/a");
         cache.put(key, "body").unwrap();
 
-        cache.age_entry(key, MAX_AGE - Duration::from_secs(60));
+        cache.age_entry(key, MAX_AGE.saturating_sub(Duration::from_secs(60)));
 
         assert_eq!(cache.get(key).as_deref(), Some("body"));
     }

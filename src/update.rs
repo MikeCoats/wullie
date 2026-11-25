@@ -504,7 +504,7 @@ mod tests {
 
         let findings = find_updates(&projects, &registry);
 
-        assert!(findings.projects.is_empty());
+        assert!(findings.projects.is_empty(), "{:?}", findings.projects);
         assert_eq!(findings.errors.len(), 1);
         match &findings.errors[0] {
             UpdateError::Compare {

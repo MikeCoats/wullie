@@ -189,11 +189,9 @@ mod tests {
 
     #[test]
     fn a_fully_unpublished_package_has_no_releases() {
-        assert!(
-            parse_index(r#"{"name": "gone", "time": {"unpublished": {}}}"#)
-                .unwrap()
-                .is_empty()
-        );
+        let releases = parse_index(r#"{"name": "gone", "time": {"unpublished": {}}}"#).unwrap();
+
+        assert!(releases.is_empty(), "{releases:?}");
     }
 
     #[test]

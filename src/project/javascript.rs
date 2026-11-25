@@ -468,11 +468,10 @@ mod tests {
 
     #[test]
     fn a_manifest_without_dependency_fields_is_empty() {
-        assert!(
-            dependencies(r#"{"name": "empty-package", "version": "1.0.0"}"#)
-                .unwrap()
-                .is_empty()
-        );
+        let dependencies =
+            dependencies(r#"{"name": "empty-package", "version": "1.0.0"}"#).unwrap();
+
+        assert!(dependencies.is_empty(), "{dependencies:?}");
     }
 
     #[test]

@@ -112,8 +112,7 @@ pub(super) fn parse_index(body: &str) -> Result<Vec<Release>, RegistryError> {
         .into_iter()
         .map(|version| {
             let yanked = Version::from_str(&version)
-                .map(|version| !available_versions.contains(&version))
-                .unwrap_or(true);
+                .map_or(true, |version| !available_versions.contains(&version));
             Release { version, yanked }
         })
         .collect())

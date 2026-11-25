@@ -308,7 +308,7 @@ mod tests {
 
         let findings = manifest_diffs(temp.path(), &[update]);
 
-        assert!(findings.diff.is_empty());
+        assert_eq!(findings.diff, "");
         assert!(findings.errors.is_empty());
     }
 

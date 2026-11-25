@@ -190,18 +190,17 @@ fn append_requirements(
             continue;
         }
 
-        if allow_include_group {
-            if let Some(include_group) = value.as_inline_table() {
-                if let Some(group) = include_group.get("include-group") {
-                    if group.as_str().is_some() {
-                        continue;
-                    }
-                    return Err(ParseError::invalid_field(
-                        format!("{field}.include-group"),
-                        "a string",
-                    ));
-                }
+        if allow_include_group
+            && let Some(include_group) = value.as_inline_table()
+            && let Some(group) = include_group.get("include-group")
+        {
+            if group.as_str().is_some() {
+                continue;
             }
+            return Err(ParseError::invalid_field(
+                format!("{field}.include-group"),
+                "a string",
+            ));
         }
 
         let expected = if allow_include_group {
@@ -621,11 +620,9 @@ test = ["requests>=2.31"]
 
     #[test]
     fn missing_project_table_has_no_dependencies() {
-        assert!(
-            dependencies("[tool.black]\nline-length = 88")
-                .unwrap()
-                .is_empty()
-        );
+        let dependencies = dependencies("[tool.black]\nline-length = 88").unwrap();
+
+        assert!(dependencies.is_empty(), "{dependencies:?}");
     }
 
     #[test]
