@@ -9,7 +9,7 @@ use std::path::PathBuf;
 
 use crate::dependency::{Dependency, ProjectDependencies};
 use crate::project::{Ecosystem, Project};
-use crate::registry::{Registry, RegistryError, Release};
+use crate::registry::{Registry, RegistryError, Release, SkipReason};
 
 /// The lowest matching and newest release when a requirement is out of date.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,18 +64,23 @@ pub(crate) enum UpdateError {
         #[source]
         source: RegistryError,
     },
-    /// Lookups skipped because their registry couldn't be reached.
+    /// Lookups skipped, without a request, because their registry couldn't
+    /// be reached or asked for a longer wait than Wullie makes.
     ///
-    /// The lookup that found the registry unreachable is reported on its own,
-    /// as a [`UpdateError::Lookup`], and every later one is counted here, so
-    /// a registry that is down gives two warnings rather than one per package.
+    /// The lookup that found this out is reported on its own, as a
+    /// [`UpdateError::Lookup`], and every later one is counted here, so a
+    /// registry that is down or rate limited gives two warnings rather than
+    /// one per package.
     #[error(
-        "skipped {count} more {} on {registry} because it couldn't be reached",
-        if *count == 1 { "lookup" } else { "lookups" }
+        "skipped {count} more {} on {registry} because it {}",
+        if *count == 1 { "lookup" } else { "lookups" },
+        reason.because()
     )]
     Skipped {
         /// The registry's host.
         registry: String,
+        /// Why its lookups were skipped.
+        reason: SkipReason,
         /// How many lookups were skipped.
         count: usize,
     },
@@ -101,8 +106,8 @@ pub(crate) fn find_updates(
 ) -> UpdateFindings {
     let mut findings = UpdateFindings::default();
     let mut cache: HashMap<(Ecosystem, String), Option<Vec<Release>>> = HashMap::new();
-    // Lookups skipped per unreachable registry, in the order first skipped.
-    let mut skipped: Vec<(String, usize)> = Vec::new();
+    // Lookups skipped per registry and reason, in the order first skipped.
+    let mut skipped: Vec<(String, SkipReason, usize)> = Vec::new();
 
     for project in projects {
         let ecosystem = project.project.ecosystem();
@@ -115,8 +120,8 @@ pub(crate) fn find_updates(
             let releases = cache.entry(key).or_insert_with(|| {
                 registry
                     .releases(ecosystem, &dependency.name)
-                    .map_err(|source| match source.unreachable_registry() {
-                        Some(registry) => count_skipped(&mut skipped, registry),
+                    .map_err(|source| match source.skipped_registry() {
+                        Some((registry, reason)) => count_skipped(&mut skipped, registry, reason),
                         None => findings.errors.push(UpdateError::Lookup {
                             name: dependency.name.clone(),
                             manifest: project.project.manifest().to_path_buf(),
@@ -151,19 +156,32 @@ pub(crate) fn find_updates(
         }
     }
 
-    findings.errors.extend(
-        skipped
-            .into_iter()
-            .map(|(registry, count)| UpdateError::Skipped { registry, count }),
-    );
+    findings
+        .errors
+        .extend(
+            skipped
+                .into_iter()
+                .map(|(registry, reason, count)| UpdateError::Skipped {
+                    registry,
+                    reason,
+                    count,
+                }),
+        );
     findings
 }
 
-/// Counts one more lookup skipped for `registry`.
-fn count_skipped(skipped: &mut Vec<(String, usize)>, registry: &str) {
-    match skipped.iter_mut().find(|(name, _)| name == registry) {
-        Some((_, count)) => *count += 1,
-        None => skipped.push((registry.to_owned(), 1)),
+/// Counts one more lookup skipped on `registry` for `reason`.
+fn count_skipped(
+    skipped: &mut Vec<(String, SkipReason, usize)>,
+    registry: &str,
+    reason: SkipReason,
+) {
+    match skipped
+        .iter_mut()
+        .find(|(name, why, _)| name == registry && *why == reason)
+    {
+        Some((_, _, count)) => *count += 1,
+        None => skipped.push((registry.to_owned(), reason, 1)),
     }
 }
 
@@ -252,7 +270,7 @@ mod tests {
 
     use crate::dependency::{Dependency, ProjectDependencies};
     use crate::project::{Ecosystem, Project};
-    use crate::registry::{Registry, RegistryError, Release};
+    use crate::registry::{Registry, RegistryError, Release, SkipReason};
 
     use super::{Outdated, ProjectUpdates, Update, UpdateError, find_updates};
 
@@ -260,8 +278,8 @@ mod tests {
     struct FakeRegistry {
         releases: HashMap<(Ecosystem, String), Vec<Release>>,
         calls: RefCell<HashMap<(Ecosystem, String), usize>>,
-        /// Packages whose lookup is skipped as if their registry were down.
-        unreachable: HashMap<(Ecosystem, String), &'static str>,
+        /// Packages whose lookup is skipped, with the registry and reason.
+        skipped: HashMap<(Ecosystem, String), (&'static str, SkipReason)>,
     }
 
     impl FakeRegistry {
@@ -299,8 +317,8 @@ mod tests {
                 .borrow_mut()
                 .entry((ecosystem, name.clone()))
                 .or_default() += 1;
-            if let Some(registry) = self.unreachable.get(&(ecosystem, name.clone())) {
-                return Err(RegistryError::unreachable(registry));
+            if let Some((registry, reason)) = self.skipped.get(&(ecosystem, name.clone())) {
+                return Err(RegistryError::skipped(registry, *reason));
             }
             self.releases
                 .get(&(ecosystem, name))
@@ -548,17 +566,18 @@ mod tests {
     }
 
     #[test]
-    fn reports_lookups_skipped_on_an_unreachable_registry_in_one_summary() {
+    fn reports_skipped_lookups_in_one_summary_per_registry_and_reason() {
         let mut registry = FakeRegistry::default();
         registry.set_releases(Ecosystem::Rust, "up", &[("1.0.0", false)]);
         for name in ["a", "b", "c"] {
-            registry
-                .unreachable
-                .insert((Ecosystem::Rust, name.to_owned()), "index.crates.io");
+            registry.skipped.insert(
+                (Ecosystem::Rust, name.to_owned()),
+                ("index.crates.io", SkipReason::Unreachable),
+            );
         }
-        registry.unreachable.insert(
+        registry.skipped.insert(
             (Ecosystem::JavaScript, "d".to_owned()),
-            "registry.npmjs.org",
+            ("registry.npmjs.org", SkipReason::RetryAfter),
         );
         let projects = vec![
             project_dependencies("/first/Cargo.toml", &[("a", "1"), ("up", "1")]),
@@ -573,7 +592,8 @@ mod tests {
             messages,
             [
                 "skipped 3 more lookups on index.crates.io because it couldn't be reached",
-                "skipped 1 more lookup on registry.npmjs.org because it couldn't be reached",
+                "skipped 1 more lookup on registry.npmjs.org because it asked not to be sent \
+                 requests yet",
             ]
         );
     }

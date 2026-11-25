@@ -92,6 +92,7 @@ A lookup that fails in a way that is likely to be temporary is tried up to 3 tim
 Wullie waits up to 10 seconds; if a registry asks for longer, through a `Retry-After` header, its remaining lookups fail at once with a warning.
 A registry that can't be reached at all, because its name doesn't resolve or connecting to it fails even after retrying, isn't sent anything more during that run.
 The first failure is reported as usual, and the lookups skipped after it are reported in one warning per registry, such as `skipped 212 more lookups on index.crates.io because it couldn't be reached`.
+Lookups skipped because a registry asked, with `Retry-After`, for a longer wait are summed the same way, such as `skipped 40 more lookups on registry.npmjs.org because it asked not to be sent requests yet`.
 
 ### Look-up Cache
 

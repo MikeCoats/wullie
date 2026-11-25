@@ -185,7 +185,19 @@ impl HttpRegistry {
         let host = host(url);
         let mut attempt = 1;
         loop {
-            self.wait_for(&host)?;
+            match self.wait_for(&host) {
+                Ok(()) => {}
+                // Nothing has been sent for this lookup yet, so it was
+                // skipped because of what an earlier lookup found.
+                Err(blocked) if attempt == 1 => {
+                    return Err(RegistryError::skipped(&host, blocked.reason()));
+                }
+                // This lookup's own response asked for the long wait.
+                Err(Blocked::Wait(wait)) => return Err(RegistryError::rate_limited(wait)),
+                Err(Blocked::Unreachable) => {
+                    return Err(RegistryError::skipped(&host, SkipReason::Unreachable));
+                }
+            }
             let failure = match self.fetch_once(url, accept) {
                 Ok(body) => return Ok(body),
                 Err(failure) => failure,
@@ -211,19 +223,20 @@ impl HttpRegistry {
         }
     }
 
-    /// Waits until `host` may be sent a request, or fails if its registry
-    /// asked for a longer wait than [`MAX_WAIT`] or couldn't be reached.
-    fn wait_for(&self, host: &str) -> Result<(), RegistryError> {
+    /// Waits until `host` may be sent a request, or says why it can't be: its
+    /// registry asked for a longer wait than [`MAX_WAIT`], or couldn't be
+    /// reached.
+    fn wait_for(&self, host: &str) -> Result<(), Blocked> {
         let Some(state) = self.hosts.borrow().get(host).copied() else {
             return Ok(());
         };
         let until = match state {
-            HostState::Unreachable => return Err(RegistryError::unreachable(host)),
+            HostState::Unreachable => return Err(Blocked::Unreachable),
             HostState::WaitUntil(until) => until,
         };
         let wait = until.saturating_duration_since(Instant::now());
         if wait > MAX_WAIT {
-            return Err(RegistryError::rate_limited(wait));
+            return Err(Blocked::Wait(wait));
         }
         thread::sleep(wait);
         Ok(())
@@ -255,6 +268,43 @@ impl HttpRegistry {
             .limit(MAX_BODY_SIZE)
             .read_to_string()
             .map_err(Failure::from)
+    }
+}
+
+/// Why a registry can't be sent a request now.
+enum Blocked {
+    /// It asked, with `Retry-After`, to wait this much longer.
+    Wait(Duration),
+    /// It couldn't be reached earlier in the run.
+    Unreachable,
+}
+
+impl Blocked {
+    fn reason(&self) -> SkipReason {
+        match self {
+            Self::Wait(_) => SkipReason::RetryAfter,
+            Self::Unreachable => SkipReason::Unreachable,
+        }
+    }
+}
+
+/// Why a lookup was skipped without sending its registry a request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SkipReason {
+    /// The registry couldn't be reached earlier in the run.
+    Unreachable,
+    /// The registry asked earlier in the run, with `Retry-After`, for a
+    /// longer wait than Wullie makes.
+    RetryAfter,
+}
+
+impl SkipReason {
+    /// Why the lookups were skipped, to follow "because it…" in a warning.
+    pub(crate) fn because(self) -> &'static str {
+        match self {
+            Self::Unreachable => "couldn't be reached",
+            Self::RetryAfter => "asked not to be sent requests yet",
+        }
     }
 }
 
@@ -424,8 +474,11 @@ enum RegistryErrorKind {
     Http(#[source] ureq::Error),
     #[error("registry asked not to be sent requests for another {0} seconds")]
     RateLimited(u64),
-    #[error("registry {0} couldn't be reached earlier in this run")]
-    Unreachable(String),
+    #[error("lookup on {registry} skipped because it {}", reason.because())]
+    Skipped {
+        registry: String,
+        reason: SkipReason,
+    },
     #[error("cannot parse registry index data")]
     Index(#[source] serde_json::Error),
 }
@@ -442,17 +495,19 @@ impl RegistryError {
         Self(RegistryErrorKind::RateLimited(seconds))
     }
 
-    /// A lookup skipped because its registry, `host`, couldn't be reached
-    /// earlier in the run.
-    pub(crate) fn unreachable(host: &str) -> Self {
-        Self(RegistryErrorKind::Unreachable(host.to_owned()))
+    /// A lookup skipped, without sending a request, because of what an
+    /// earlier lookup found out about its registry, `host`.
+    pub(crate) fn skipped(host: &str, reason: SkipReason) -> Self {
+        Self(RegistryErrorKind::Skipped {
+            registry: host.to_owned(),
+            reason,
+        })
     }
 
-    /// The registry this lookup was skipped for, if it was skipped because
-    /// the registry couldn't be reached earlier in the run.
-    pub(crate) fn unreachable_registry(&self) -> Option<&str> {
+    /// The registry this lookup was skipped for, and why, if it was skipped.
+    pub(crate) fn skipped_registry(&self) -> Option<(&str, SkipReason)> {
         match &self.0 {
-            RegistryErrorKind::Unreachable(host) => Some(host),
+            RegistryErrorKind::Skipped { registry, reason } => Some((registry, *reason)),
             _ => None,
         }
     }
@@ -485,8 +540,8 @@ mod tests {
     use crate::project::Ecosystem;
 
     use super::{
-        Cache, HttpRegistry, MAX_AGE, READ_TIMEOUT, Registry, Release, accept, backoff, index_path,
-        is_unreachable, parse_http_date, parse_retry_after, url,
+        Cache, HttpRegistry, MAX_AGE, READ_TIMEOUT, Registry, Release, SkipReason, accept, backoff,
+        index_path, is_unreachable, parse_http_date, parse_retry_after, url,
     };
 
     /// Serves `responses` on a local port, one per connection in order,
@@ -605,13 +660,14 @@ mod tests {
         );
         assert_eq!(requests.load(Ordering::SeqCst), 1);
 
-        // Later lookups on the same registry aren't sent either.
+        // Later lookups on the same registry aren't sent either, and are
+        // marked as skipped so they can be summed into one warning.
         let error = registry.fetch(&url, None).unwrap_err();
 
-        assert!(
-            error
-                .to_string()
-                .starts_with("registry asked not to be sent")
+        let host = url.trim_start_matches("http://").trim_end_matches('/');
+        assert_eq!(
+            error.skipped_registry(),
+            Some((host, SkipReason::RetryAfter))
         );
         assert_eq!(requests.load(Ordering::SeqCst), 1);
     }
@@ -669,10 +725,10 @@ mod tests {
         let second = registry.fetch(&url, None).unwrap_err();
 
         assert_eq!(first.to_string(), "registry request failed");
-        assert_eq!(first.unreachable_registry(), None);
+        assert_eq!(first.skipped_registry(), None);
         assert_eq!(
-            second.unreachable_registry(),
-            Some(closed.to_string().as_str())
+            second.skipped_registry(),
+            Some((closed.to_string().as_str(), SkipReason::Unreachable))
         );
         assert!(started.elapsed() < Duration::from_millis(500));
     }
