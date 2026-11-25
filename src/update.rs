@@ -82,23 +82,20 @@ pub fn find_updates(projects: &[ProjectDependencies], registry: &dyn Registry) -
 
         for dependency in &project.dependencies {
             let key = (ecosystem, ecosystem.normalize_name(&dependency.name));
-            if !cache.contains_key(&key) {
-                match registry.releases(ecosystem, &dependency.name) {
-                    Ok(releases) => {
-                        cache.insert(key.clone(), Some(releases));
-                    }
-                    Err(source) => {
+            // A failed lookup is cached as `None`, so it's reported once and
+            // later uses of the same package are skipped quietly.
+            let releases = cache.entry(key).or_insert_with(|| {
+                registry
+                    .releases(ecosystem, &dependency.name)
+                    .map_err(|source| {
                         findings.errors.push(UpdateError::Lookup {
                             name: dependency.name.clone(),
                             source,
                         });
-                        cache.insert(key.clone(), None);
-                        continue;
-                    }
-                }
-            }
-
-            let Some(releases) = cache.get(&key).and_then(Option::as_deref) else {
+                    })
+                    .ok()
+            });
+            let Some(releases) = releases.as_deref() else {
                 continue;
             };
             match ecosystem.outdated(&dependency.requirement, releases) {
