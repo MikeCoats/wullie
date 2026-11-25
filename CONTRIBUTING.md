@@ -90,10 +90,17 @@ We deliberately don't revalidate with `ETag` or `Last-Modified`: a fixed lifetim
 Each run first deletes entries older than 4 hours, along with any directories left empty, so the cache only holds recent look-ups.
 Pruning always uses the 4 hour lifetime, even with `--refresh`, so a refresh of one tree doesn't empty the cache for every other tree.
 
+## Crate Layout
+
+Wullie ships as a binary, not a library.
+The pipeline's modules belong to the binary crate, declared in `src/main.rs`.
+The library crate holds only `cli`, so `xtask` can render the man page and completions from the same definitions as `--help`.
+Only a change to `cli` can break anything outside the binary, so other changes don't need a new minor version.
+
 ## Errors
 
-The library uses `thiserror` for typed errors without exposing dependency-specific error types in its public API.
-The CLI uses `anyhow` to add context to command-line errors.
+Each stage uses `thiserror` for typed errors, and wraps errors from its dependencies in its own opaque types.
+Starting up the command uses `anyhow` to add context to its errors.
 
 ## Pruning
 

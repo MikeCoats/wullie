@@ -16,7 +16,7 @@ use crate::update::ProjectUpdates;
 
 /// Errors while reading or parsing a manifest for diff generation.
 #[derive(Debug, thiserror::Error)]
-pub enum DiffError {
+pub(crate) enum DiffError {
     /// A manifest could not be read.
     #[error("cannot read manifest {path}")]
     Read {
@@ -39,7 +39,7 @@ pub enum DiffError {
 
 /// The combined unified diff and errors encountered while producing it.
 #[derive(Debug, Default)]
-pub struct DiffFindings {
+pub(crate) struct DiffFindings {
     /// Unified diff text for every changed manifest.
     pub diff: String,
     /// Per-project failures; other diffs are still generated.
@@ -47,7 +47,7 @@ pub struct DiffFindings {
 }
 
 /// Generates unified diffs for changed manifests, using paths relative to `root`.
-pub fn manifest_diffs(root: &Path, projects: &[ProjectUpdates]) -> DiffFindings {
+pub(crate) fn manifest_diffs(root: &Path, projects: &[ProjectUpdates]) -> DiffFindings {
     let mut findings = DiffFindings::default();
     let mut projects: Vec<_> = projects.iter().collect();
     projects.sort_by(|left, right| left.project.manifest().cmp(right.project.manifest()));

@@ -3,6 +3,23 @@
 
 //! The `wullie` command: finds out-of-date dependencies under a directory and
 //! prints a diff that pins them.
+//!
+//! The work happens in a pipeline of stages, each in its own module:
+//!
+//! 1. The Project Finder (`project`) walks a tree for manifests.
+//! 2. The Dependency Finder (`dependency`) reads each manifest's dependencies.
+//! 3. The Update Finder (`update`) compares them with their registries.
+//! 4. The Diff Maker (`diff`) pins the outdated ones and builds the diff.
+//!
+//! The command-line definition lives in the library crate instead, so `xtask`
+//! can render the man page and completions from it.
+
+mod dependency;
+mod diff;
+mod project;
+mod registry;
+mod update;
+mod walk;
 
 use std::env;
 use std::error::Error;
@@ -15,8 +32,12 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use clap::Parser;
 use wullie::cli::Cli;
-use wullie::registry::{Cache, HttpRegistry, MAX_AGE};
-use wullie::{find_dependencies, find_projects, find_updates, manifest_diffs};
+
+use crate::dependency::find_dependencies;
+use crate::diff::manifest_diffs;
+use crate::project::find_projects;
+use crate::registry::{Cache, HttpRegistry, MAX_AGE};
+use crate::update::find_updates;
 
 fn main() -> ExitCode {
     let cli = Cli::parse();

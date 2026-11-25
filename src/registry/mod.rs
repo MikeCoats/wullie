@@ -8,7 +8,7 @@ mod javascript;
 mod python;
 mod rust;
 
-pub use cache::{Cache, CacheError, MAX_AGE};
+pub(crate) use cache::{Cache, CacheError, MAX_AGE};
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -26,7 +26,7 @@ use crate::project::Ecosystem;
 
 /// A published release and whether its registry has yanked it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Release {
+pub(crate) struct Release {
     /// The release version as reported by its registry.
     pub version: String,
     /// Whether the release has been yanked.
@@ -34,7 +34,7 @@ pub struct Release {
 }
 
 /// A source of published releases for an ecosystem.
-pub trait Registry {
+pub(crate) trait Registry {
     /// Returns all published releases for a package.
     ///
     /// # Errors
@@ -87,7 +87,7 @@ fn parse_index(ecosystem: Ecosystem, body: &str) -> Result<Vec<Release>, Registr
 ///
 /// With a `Cache`, fresh index bodies are read from disk instead, and fetched
 /// bodies are written back.
-pub struct HttpRegistry {
+pub(crate) struct HttpRegistry {
     agent: ureq::Agent,
     cache: Option<Cache>,
     cache_write_error: OnceLock<CacheError>,
@@ -95,7 +95,7 @@ pub struct HttpRegistry {
 
 impl HttpRegistry {
     /// Creates a client with a global request timeout and Wullie user agent.
-    pub fn new(cache: Option<Cache>) -> Self {
+    pub(crate) fn new(cache: Option<Cache>) -> Self {
         let config = ureq::Agent::config_builder()
             .timeout_global(Some(Duration::from_secs(30)))
             .https_only(true)
@@ -110,7 +110,7 @@ impl HttpRegistry {
     }
 
     /// Returns the first cache write error encountered by this registry.
-    pub fn cache_write_error(&self) -> Option<&CacheError> {
+    pub(crate) fn cache_write_error(&self) -> Option<&CacheError> {
         self.cache_write_error.get()
     }
 
@@ -173,7 +173,7 @@ impl Registry for HttpRegistry {
 /// An opaque registry lookup or index parsing error.
 #[derive(Debug, thiserror::Error)]
 #[error(transparent)]
-pub struct RegistryError(RegistryErrorKind);
+pub(crate) struct RegistryError(RegistryErrorKind);
 
 #[derive(Debug, thiserror::Error)]
 enum RegistryErrorKind {

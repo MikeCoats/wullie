@@ -1,7 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Mike Coats <i.am@mikecoats.com>
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Projects found on disk, and the per-ecosystem rules for their manifests.
+//! The Project Finder: finds projects on disk by their manifests, and holds
+//! the per-ecosystem rules for those manifests.
 
 mod javascript;
 mod python;
@@ -10,11 +11,52 @@ mod rust;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
-use strum::{Display, EnumIter};
+use strum::{Display, EnumIter, IntoEnumIterator};
 
 use crate::dependency::{Dependency, ParseError};
 use crate::registry::Release;
 use crate::update::{CompareError, Outdated, Update};
+use crate::walk::{self, WalkError};
+
+/// The result of searching a directory tree for projects.
+#[derive(Debug, Default)]
+pub(crate) struct ProjectFindings {
+    /// Projects found, sorted by manifest path then ecosystem.
+    pub projects: Vec<Project>,
+    /// Errors met during the walk; the search carries on past them.
+    pub errors: Vec<WalkError>,
+}
+
+/// Searches `root` recursively for projects of every supported ecosystem.
+pub(crate) fn find_projects(root: &Path) -> ProjectFindings {
+    let skip_dirs: Vec<&'static str> = Ecosystem::iter()
+        .flat_map(|ecosystem| ecosystem.skip_dirs().iter().copied())
+        .collect();
+    let mut projects = Vec::new();
+    let mut errors = Vec::new();
+
+    for entry in walk::files(root, &skip_dirs) {
+        let file = match entry {
+            Ok(file) => file,
+            Err(error) => {
+                errors.push(error);
+                continue;
+            }
+        };
+        let Some(file_name) = file.file_name() else {
+            continue;
+        };
+
+        projects.extend(
+            Ecosystem::iter()
+                .filter(|ecosystem| ecosystem.is_manifest(file_name))
+                .filter_map(|ecosystem| Project::new(ecosystem, file.clone())),
+        );
+    }
+
+    projects.sort();
+    ProjectFindings { projects, errors }
+}
 
 /// A language ecosystem whose projects Wullie can find.
 ///
@@ -22,7 +64,7 @@ use crate::update::{CompareError, Outdated, Update};
 /// them, so adding a variant fails to compile until every stage handles it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Display, EnumIter)]
 #[strum(serialize_all = "lowercase")]
-pub enum Ecosystem {
+pub(crate) enum Ecosystem {
     /// Cargo projects, with releases from crates.io.
     Rust,
     /// `pyproject.toml` projects, with releases from PyPI.
@@ -33,7 +75,7 @@ pub enum Ecosystem {
 
 impl Ecosystem {
     /// Normalizes a package name according to this ecosystem's rules.
-    pub fn normalize_name(self, name: &str) -> String {
+    pub(crate) fn normalize_name(self, name: &str) -> String {
         match self {
             Self::Rust => rust::normalize_name(name),
             Self::Python => python::normalize_name(name),
@@ -42,7 +84,7 @@ impl Ecosystem {
     }
 
     /// Returns whether a file with this name marks a project of this ecosystem.
-    pub fn is_manifest(self, file_name: &OsStr) -> bool {
+    pub(crate) fn is_manifest(self, file_name: &OsStr) -> bool {
         match self {
             Self::Rust => rust::is_manifest(file_name),
             Self::Python => python::is_manifest(file_name),
@@ -51,7 +93,7 @@ impl Ecosystem {
     }
 
     /// Directory names that are never searched for projects of any ecosystem.
-    pub fn skip_dirs(self) -> &'static [&'static str] {
+    pub(crate) fn skip_dirs(self) -> &'static [&'static str] {
         match self {
             Self::Rust => rust::SKIP_DIRS,
             Self::Python => python::SKIP_DIRS,
@@ -65,7 +107,7 @@ impl Ecosystem {
     ///
     /// Fails if the manifest can't be parsed, or a dependency section or
     /// entry is malformed.
-    pub fn dependencies(self, contents: &str) -> Result<Vec<Dependency>, ParseError> {
+    pub(crate) fn dependencies(self, contents: &str) -> Result<Vec<Dependency>, ParseError> {
         match self {
             Self::Rust => rust::dependencies(contents),
             Self::Python => python::dependencies(contents),
@@ -78,7 +120,7 @@ impl Ecosystem {
     /// # Errors
     ///
     /// Fails if the requirement is invalid, or no non-yanked release matches it.
-    pub fn outdated(
+    pub(crate) fn outdated(
         self,
         requirement: &str,
         releases: &[Release],
@@ -96,7 +138,7 @@ impl Ecosystem {
     ///
     /// Fails if the manifest can't be parsed, or a dependency section or
     /// entry is malformed.
-    pub fn pin(self, contents: &str, updates: &[Update]) -> Result<String, ParseError> {
+    pub(crate) fn pin(self, contents: &str, updates: &[Update]) -> Result<String, ParseError> {
         match self {
             Self::Rust => rust::pin(contents, updates),
             Self::Python => python::pin(contents, updates),
@@ -111,7 +153,7 @@ impl Ecosystem {
 /// prints them in.
 /// The field order matters: the derived `Ord` compares fields top to bottom.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Project {
+pub(crate) struct Project {
     manifest: PathBuf,
     ecosystem: Ecosystem,
 }
@@ -127,25 +169,13 @@ impl Project {
     }
 
     /// The ecosystem this project belongs to.
-    pub fn ecosystem(&self) -> Ecosystem {
+    pub(crate) fn ecosystem(&self) -> Ecosystem {
         self.ecosystem
     }
 
     /// The manifest file that identified this project.
-    pub fn manifest(&self) -> &Path {
+    pub(crate) fn manifest(&self) -> &Path {
         &self.manifest
-    }
-
-    /// The project directory, which is the directory containing the manifest.
-    #[expect(
-        clippy::expect_used,
-        clippy::missing_panics_doc,
-        reason = "Project::new rejects manifests without a parent, so this can't panic"
-    )]
-    pub fn dir(&self) -> &Path {
-        self.manifest
-            .parent()
-            .expect("Project::new guarantees the manifest has a parent")
     }
 }
 
@@ -180,13 +210,24 @@ fn split_line_ending(line: &str) -> (&str, &str) {
 #[cfg(test)]
 mod tests {
     use std::ffi::OsStr;
+    use std::fs;
     use std::path::{Path, PathBuf};
 
     use strum::IntoEnumIterator;
+    use tempfile::TempDir;
 
     use crate::update::Outdated;
 
-    use super::{Ecosystem, Project, restore_line_endings};
+    use super::{Ecosystem, Project, find_projects, restore_line_endings};
+
+    fn create_manifest(path: &Path) {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, "").unwrap();
+    }
+
+    fn project(ecosystem: Ecosystem, manifest: &Path) -> Project {
+        Project::new(ecosystem, manifest.to_path_buf()).unwrap()
+    }
 
     #[test]
     fn restores_crlf_endings() {
@@ -358,14 +399,13 @@ mod tests {
     }
 
     #[test]
-    fn project_dir_is_manifest_parent() {
+    fn project_keeps_its_manifest_path() {
         let project = Project::new(
             Ecosystem::Rust,
             PathBuf::from("/projects/example/Cargo.toml"),
         )
         .unwrap();
 
-        assert_eq!(project.dir(), Path::new("/projects/example"));
         assert_eq!(
             project.manifest(),
             Path::new("/projects/example/Cargo.toml")
@@ -389,5 +429,250 @@ mod tests {
     #[test]
     fn project_requires_a_parent_directory() {
         assert_eq!(Project::new(Ecosystem::Rust, PathBuf::from("/")), None);
+    }
+
+    #[test]
+    fn finds_a_single_rust_project() {
+        let temp = TempDir::new().unwrap();
+        let manifest = temp.path().join("Cargo.toml");
+        create_manifest(&manifest);
+
+        let findings = find_projects(temp.path());
+
+        assert!(findings.errors.is_empty());
+        assert_eq!(findings.projects, vec![project(Ecosystem::Rust, &manifest)]);
+    }
+
+    #[test]
+    fn finds_workspace_root_and_member_in_path_order() {
+        let temp = TempDir::new().unwrap();
+        let root_manifest = temp.path().join("Cargo.toml");
+        let member_manifest = temp.path().join("crates/a/Cargo.toml");
+        create_manifest(&root_manifest);
+        create_manifest(&member_manifest);
+
+        let findings = find_projects(temp.path());
+
+        assert!(findings.errors.is_empty());
+        assert_eq!(
+            findings.projects,
+            vec![
+                project(Ecosystem::Rust, &root_manifest),
+                project(Ecosystem::Rust, &member_manifest)
+            ]
+        );
+    }
+
+    #[test]
+    fn does_not_find_manifests_under_target() {
+        let temp = TempDir::new().unwrap();
+        let root_manifest = temp.path().join("Cargo.toml");
+        let target_manifest = temp.path().join("target/generated/Cargo.toml");
+        create_manifest(&root_manifest);
+        create_manifest(&target_manifest);
+
+        let findings = find_projects(temp.path());
+
+        assert!(findings.errors.is_empty());
+        assert_eq!(
+            findings.projects,
+            vec![project(Ecosystem::Rust, &root_manifest)]
+        );
+    }
+
+    #[test]
+    fn respects_gitignore_through_project_finding() {
+        let temp = TempDir::new().unwrap();
+        let visible_manifest = temp.path().join("Cargo.toml");
+        create_manifest(&visible_manifest);
+        fs::write(temp.path().join(".gitignore"), "ignored/\n").unwrap();
+        create_manifest(&temp.path().join("ignored/Cargo.toml"));
+
+        let findings = find_projects(temp.path());
+
+        assert!(findings.errors.is_empty());
+        assert_eq!(
+            findings.projects,
+            vec![project(Ecosystem::Rust, &visible_manifest)]
+        );
+    }
+
+    #[test]
+    fn finds_a_python_project_by_pyproject() {
+        let temp = TempDir::new().unwrap();
+        let manifest = temp.path().join("app/pyproject.toml");
+        create_manifest(&manifest);
+
+        let findings = find_projects(temp.path());
+
+        assert!(findings.errors.is_empty());
+        assert_eq!(
+            findings.projects,
+            vec![project(Ecosystem::Python, &manifest)]
+        );
+    }
+
+    #[test]
+    fn finds_javascript_workspace_root_and_member_in_path_order() {
+        let temp = TempDir::new().unwrap();
+        let root_manifest = temp.path().join("package.json");
+        let member_manifest = temp.path().join("packages/app/package.json");
+        create_manifest(&root_manifest);
+        create_manifest(&member_manifest);
+
+        let findings = find_projects(temp.path());
+
+        assert!(findings.errors.is_empty());
+        assert_eq!(
+            findings.projects,
+            vec![
+                project(Ecosystem::JavaScript, &root_manifest),
+                project(Ecosystem::JavaScript, &member_manifest)
+            ]
+        );
+    }
+
+    #[test]
+    fn does_not_find_manifests_inside_javascript_dependency_directories() {
+        let temp = TempDir::new().unwrap();
+        let root_manifest = temp.path().join("package.json");
+        create_manifest(&root_manifest);
+        create_manifest(&temp.path().join("node_modules/dep/package.json"));
+        create_manifest(&temp.path().join("bower_components/dep/package.json"));
+
+        let findings = find_projects(temp.path());
+
+        assert!(findings.errors.is_empty());
+        assert_eq!(
+            findings.projects,
+            vec![project(Ecosystem::JavaScript, &root_manifest)]
+        );
+    }
+
+    #[test]
+    fn prunes_directories_globally_across_ecosystems() {
+        let temp = TempDir::new().unwrap();
+        let rust_manifest = temp.path().join("Cargo.toml");
+        let python_manifest = temp.path().join("pyproject.toml");
+        let javascript_manifest = temp.path().join("package.json");
+        create_manifest(&rust_manifest);
+        create_manifest(&python_manifest);
+        create_manifest(&javascript_manifest);
+        create_manifest(&temp.path().join("node_modules/dep/Cargo.toml"));
+        create_manifest(&temp.path().join("target/generated/package.json"));
+        create_manifest(&temp.path().join("site-packages/dep/package.json"));
+        create_manifest(&temp.path().join("bower_components/dep/pyproject.toml"));
+
+        let findings = find_projects(temp.path());
+
+        assert!(findings.errors.is_empty());
+        assert_eq!(
+            findings.projects,
+            vec![
+                project(Ecosystem::Rust, &rust_manifest),
+                project(Ecosystem::JavaScript, &javascript_manifest),
+                project(Ecosystem::Python, &python_manifest)
+            ]
+        );
+    }
+
+    #[test]
+    fn does_not_find_legacy_python_projects() {
+        let temp = TempDir::new().unwrap();
+        create_manifest(&temp.path().join("setuppy/setup.py"));
+        create_manifest(&temp.path().join("setupcfg/setup.cfg"));
+        create_manifest(&temp.path().join("requirements/requirements.txt"));
+
+        let findings = find_projects(temp.path());
+
+        assert!(findings.errors.is_empty());
+        assert!(findings.projects.is_empty(), "{:?}", findings.projects);
+    }
+
+    #[test]
+    fn finds_both_ecosystems_in_one_directory() {
+        let temp = TempDir::new().unwrap();
+        let cargo = temp.path().join("Cargo.toml");
+        let pyproject = temp.path().join("pyproject.toml");
+        create_manifest(&cargo);
+        create_manifest(&pyproject);
+
+        let findings = find_projects(temp.path());
+
+        assert!(findings.errors.is_empty());
+        assert_eq!(
+            findings.projects,
+            vec![
+                project(Ecosystem::Rust, &cargo),
+                project(Ecosystem::Python, &pyproject)
+            ]
+        );
+    }
+
+    #[test]
+    fn does_not_find_manifests_inside_virtualenvs() {
+        let temp = TempDir::new().unwrap();
+        let root_manifest = temp.path().join("pyproject.toml");
+        create_manifest(&root_manifest);
+        create_manifest(
+            &temp
+                .path()
+                .join("venv/lib/python3.13/site-packages/dep/pyproject.toml"),
+        );
+        create_manifest(&temp.path().join(".venv/lib/dep/pyproject.toml"));
+
+        let findings = find_projects(temp.path());
+
+        assert!(findings.errors.is_empty());
+        assert_eq!(
+            findings.projects,
+            vec![project(Ecosystem::Python, &root_manifest)]
+        );
+    }
+
+    #[test]
+    fn finds_nothing_in_an_empty_directory() {
+        let temp = TempDir::new().unwrap();
+
+        let findings = find_projects(temp.path());
+
+        assert!(findings.errors.is_empty());
+        assert!(findings.projects.is_empty(), "{:?}", findings.projects);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn reports_unreadable_directories_and_continues() {
+        use std::os::unix::fs::PermissionsExt;
+
+        /// Restores directory permissions on drop, so `TempDir` can clean up even if the test panics.
+        struct RestorePermissions<'a>(&'a Path);
+
+        impl Drop for RestorePermissions<'_> {
+            fn drop(&mut self) {
+                let _ = fs::set_permissions(self.0, fs::Permissions::from_mode(0o700));
+            }
+        }
+
+        let temp = TempDir::new().unwrap();
+        let unreadable = temp.path().join("unreadable");
+        fs::create_dir_all(&unreadable).unwrap();
+        let visible_manifest = temp.path().join("visible/Cargo.toml");
+        create_manifest(&visible_manifest);
+        fs::set_permissions(&unreadable, fs::Permissions::from_mode(0o0)).unwrap();
+        let _restore = RestorePermissions(&unreadable);
+
+        // Running as root ignores permissions, so there is nothing to test.
+        if fs::read_dir(&unreadable).is_ok() {
+            return;
+        }
+
+        let findings = find_projects(temp.path());
+
+        assert!(!findings.errors.is_empty());
+        assert_eq!(
+            findings.projects,
+            vec![project(Ecosystem::Rust, &visible_manifest)]
+        );
     }
 }

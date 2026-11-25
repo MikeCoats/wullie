@@ -16,7 +16,7 @@ use crate::project::Ecosystem;
 /// A cache entry could not be written.
 #[derive(Debug, thiserror::Error)]
 #[error("cannot write lookup cache entry {}", path.display())]
-pub struct CacheError {
+pub(crate) struct CacheError {
     path: PathBuf,
     #[source]
     source: io::Error,
@@ -29,7 +29,7 @@ impl CacheError {
 }
 
 /// How long a cached registry lookup is used before it is fetched again.
-pub const MAX_AGE: Duration = Duration::from_hours(4);
+pub(crate) const MAX_AGE: Duration = Duration::from_hours(4);
 
 /// An on-disk cache of raw registry index bodies.
 ///
@@ -38,7 +38,7 @@ pub const MAX_AGE: Duration = Duration::from_hours(4);
 /// The cache is best effort: a missing or unreadable entry is a miss, and
 /// callers report failed writes without failing the registry lookup.
 #[derive(Debug, Clone)]
-pub struct Cache {
+pub(crate) struct Cache {
     dir: PathBuf,
     max_age: Duration,
 }
@@ -48,12 +48,12 @@ impl Cache {
     ///
     /// A zero `max_age` treats every entry as stale, so lookups are fetched
     /// again and the cache is rewritten.
-    pub fn new(dir: PathBuf, max_age: Duration) -> Self {
+    pub(crate) fn new(dir: PathBuf, max_age: Duration) -> Self {
         Self { dir, max_age }
     }
 
     /// The user's cache directory for Wullie, e.g. `$XDG_CACHE_HOME/wullie`.
-    pub fn user_dir() -> Option<PathBuf> {
+    pub(crate) fn user_dir() -> Option<PathBuf> {
         let strategy = etcetera::choose_app_strategy(AppStrategyArgs {
             top_level_domain: "com".to_owned(),
             author: "Mike Coats".to_owned(),
@@ -107,7 +107,7 @@ impl Cache {
     /// Symbolic links are left alone and not followed.
     /// Pruning is best effort like the rest of the cache: anything that can't
     /// be read or deleted is skipped.
-    pub fn prune(&self, older_than: Duration) {
+    pub(crate) fn prune(&self, older_than: Duration) {
         for ecosystem in Ecosystem::iter() {
             prune_dir(
                 &self.entry_path(Path::new(&ecosystem.to_string())),

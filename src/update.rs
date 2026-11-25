@@ -12,7 +12,7 @@ use crate::registry::{Registry, RegistryError, Release};
 
 /// The lowest matching and newest release when a requirement is out of date.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Outdated {
+pub(crate) struct Outdated {
     /// The lowest published non-yanked release matching the requirement.
     pub lowest: String,
     /// The newest published non-yanked release.
@@ -21,7 +21,7 @@ pub struct Outdated {
 
 /// A dependency found to be out of date.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Update {
+pub(crate) struct Update {
     /// The dependency as declared in its manifest.
     pub dependency: Dependency,
     /// The releases that make it out of date.
@@ -30,7 +30,7 @@ pub struct Update {
 
 /// Outdated dependencies belonging to one project.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProjectUpdates {
+pub(crate) struct ProjectUpdates {
     /// The project whose dependencies need updates.
     pub project: Project,
     /// Outdated dependencies in Dependency Finder order.
@@ -39,7 +39,7 @@ pub struct ProjectUpdates {
 
 /// Results from checking project dependencies against their registries.
 #[derive(Debug, Default)]
-pub struct UpdateFindings {
+pub(crate) struct UpdateFindings {
     /// Projects with outdated dependencies, in input order.
     pub projects: Vec<ProjectUpdates>,
     /// Lookup and comparison errors; other dependencies are still checked.
@@ -48,7 +48,7 @@ pub struct UpdateFindings {
 
 /// An error looking up or comparing a dependency's releases.
 #[derive(Debug, thiserror::Error)]
-pub enum UpdateError {
+pub(crate) enum UpdateError {
     /// A registry lookup failed for this package.
     #[error("cannot look up {name}")]
     Lookup {
@@ -72,7 +72,10 @@ pub enum UpdateError {
 }
 
 /// Finds outdated dependencies, fetching each ecosystem/package pair once.
-pub fn find_updates(projects: &[ProjectDependencies], registry: &dyn Registry) -> UpdateFindings {
+pub(crate) fn find_updates(
+    projects: &[ProjectDependencies],
+    registry: &dyn Registry,
+) -> UpdateFindings {
     let mut findings = UpdateFindings::default();
     let mut cache: HashMap<(Ecosystem, String), Option<Vec<Release>>> = HashMap::new();
 
@@ -166,7 +169,7 @@ pub(crate) fn outdated<V: Ord>(
 /// An error comparing a requirement with published releases.
 #[derive(Debug, thiserror::Error)]
 #[error(transparent)]
-pub struct CompareError(CompareErrorKind);
+pub(crate) struct CompareError(CompareErrorKind);
 
 #[derive(Debug, thiserror::Error)]
 enum CompareErrorKind {

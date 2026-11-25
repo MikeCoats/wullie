@@ -11,7 +11,7 @@ use ignore::{DirEntry, WalkBuilder};
 /// An error encountered while walking the directory tree.
 #[derive(Debug, thiserror::Error)]
 #[error(transparent)]
-pub struct WalkError(ignore::Error);
+pub(crate) struct WalkError(ignore::Error);
 
 /// Recursively lists files under `root`, respecting ignore files and skipping
 /// hidden entries and any directory whose name is in `skip`.
@@ -19,7 +19,7 @@ pub struct WalkError(ignore::Error);
 /// Walk errors are yielded rather than dropped, so callers can report them.
 /// This includes problems with ignore files, such as an invalid glob, which
 /// `ignore` attaches to the directory entry instead of yielding as an error.
-pub fn files(
+pub(crate) fn files(
     root: &Path,
     skip: &[&'static str],
 ) -> impl Iterator<Item = Result<PathBuf, WalkError>> {
