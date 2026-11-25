@@ -72,12 +72,14 @@ fn main() -> ExitCode {
     for error in &diff_findings.errors {
         warn(error);
     }
+    // Cache problems are notes rather than warnings: the results are still
+    // complete, so they don't change the exit status.
     if let Some(error) = registry.cache_write_error() {
-        warn(error);
+        write_stderr(format!("Note: {}", chain(error)));
     }
     if cache_unavailable {
         write_stderr(
-            "Warning: cannot determine user cache directory; registry lookups will not be cached",
+            "Note: cannot determine user cache directory; registry lookups will not be cached",
         );
     }
 

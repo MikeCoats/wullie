@@ -125,6 +125,9 @@ The starting directory itself is not pruned, so searching from a directory with 
 - **Warnings exit with `2`, even when projects were listed.**
   A warning means part of the tree couldn't be searched, so the list may be incomplete.
   A script should be able to tell a complete answer from a partial one without parsing stderr.
+- **Cache problems are notes, and exit with `0`.**
+  If a lookup can't be cached, or there is no cache directory, the answer is still complete, just slower next time.
+  These are printed as `Note:` rather than `Warning:`, so the exit status keeps meaning "complete or not".
 - **Finding nothing exits with `0`.**
   This is where we differ from `ripgrep`, which exits with `1` when nothing matches.
   An empty tree is a valid, complete answer for Wullie, not a failed search.

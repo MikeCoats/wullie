@@ -5,6 +5,7 @@
 //! releases published to its registry.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use crate::dependency::{Dependency, ProjectDependencies};
 use crate::project::{Ecosystem, Project};
@@ -50,19 +51,26 @@ pub(crate) struct UpdateFindings {
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum UpdateError {
     /// A registry lookup failed for this package.
-    #[error("cannot look up {name}")]
+    ///
+    /// Each package is looked up once, so this names the first manifest that
+    /// needs it; other manifests needing it are skipped without a warning.
+    #[error("cannot look up {name} for {}", manifest.display())]
     Lookup {
         /// The dependency name that could not be looked up.
         name: String,
+        /// The first manifest that declares the dependency.
+        manifest: PathBuf,
         /// The registry error.
         #[source]
         source: RegistryError,
     },
     /// A dependency requirement could not be compared with its releases.
-    #[error("cannot check {name} {requirement}")]
+    #[error("cannot check {name} {requirement} in {}", manifest.display())]
     Compare {
         /// The dependency name that could not be checked.
         name: String,
+        /// The manifest that declares the dependency.
+        manifest: PathBuf,
         /// The requirement that could not be checked.
         requirement: String,
         /// The comparison error.
@@ -93,6 +101,7 @@ pub(crate) fn find_updates(
                     .map_err(|source| {
                         findings.errors.push(UpdateError::Lookup {
                             name: dependency.name.clone(),
+                            manifest: project.project.manifest().to_path_buf(),
                             source,
                         });
                     })
@@ -109,6 +118,7 @@ pub(crate) fn find_updates(
                 Ok(None) => {}
                 Err(source) => findings.errors.push(UpdateError::Compare {
                     name: dependency.name.clone(),
+                    manifest: project.project.manifest().to_path_buf(),
                     requirement: dependency.requirement.clone(),
                     source,
                 }),
@@ -207,7 +217,7 @@ impl CompareError {
 mod tests {
     use std::cell::RefCell;
     use std::collections::HashMap;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     use crate::dependency::{Dependency, ProjectDependencies};
     use crate::project::{Ecosystem, Project};
@@ -487,8 +497,13 @@ mod tests {
         assert_eq!(findings.errors.len(), 1);
         assert!(matches!(
             &findings.errors[0],
-            UpdateError::Lookup { name, .. } if name == "missing"
+            UpdateError::Lookup { name, manifest, .. }
+                if name == "missing" && manifest == Path::new("/first/Cargo.toml")
         ));
+        assert_eq!(
+            findings.errors[0].to_string(),
+            "cannot look up missing for /first/Cargo.toml"
+        );
         assert_eq!(findings.projects.len(), 1);
         assert_eq!(
             findings.projects[0].updates,
@@ -510,13 +525,19 @@ mod tests {
         assert!(findings.projects.is_empty(), "{:?}", findings.projects);
         assert_eq!(findings.errors.len(), 1);
         match &findings.errors[0] {
-            UpdateError::Compare {
+            error @ UpdateError::Compare {
                 name,
+                manifest,
                 requirement,
                 source,
             } => {
                 assert_eq!(name, "broken");
+                assert_eq!(manifest, Path::new("/project/Cargo.toml"));
                 assert_eq!(requirement, "not-semver");
+                assert_eq!(
+                    error.to_string(),
+                    "cannot check broken not-semver in /project/Cargo.toml"
+                );
                 assert_eq!(source.to_string(), "invalid version requirement");
             }
             error @ UpdateError::Lookup { .. } => {
