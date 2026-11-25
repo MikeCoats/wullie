@@ -1,6 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Mike Coats <i.am@mikecoats.com>
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+//! The Update Finder: compares each dependency's requirement with the
+//! releases published to its registry.
+
 use std::collections::HashMap;
 
 use crate::dependency::{Dependency, ProjectDependencies};
@@ -516,7 +519,9 @@ mod tests {
                 assert_eq!(requirement, "not-semver");
                 assert_eq!(source.to_string(), "invalid version requirement");
             }
-            error => panic!("expected a comparison error, got {error:?}"),
+            error @ UpdateError::Lookup { .. } => {
+                panic!("expected a comparison error, got {error:?}")
+            }
         }
     }
 }

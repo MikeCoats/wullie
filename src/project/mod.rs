@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Mike Coats <i.am@mikecoats.com>
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+//! Projects found on disk, and the per-ecosystem rules for their manifests.
+
 mod javascript;
 mod python;
 mod rust;
@@ -21,8 +23,11 @@ use crate::update::{CompareError, Outdated, Update};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Display, EnumIter)]
 #[strum(serialize_all = "lowercase")]
 pub enum Ecosystem {
+    /// Cargo projects, with releases from crates.io.
     Rust,
+    /// `pyproject.toml` projects, with releases from PyPI.
     Python,
+    /// `package.json` projects, with releases from npm.
     JavaScript,
 }
 
@@ -55,6 +60,11 @@ impl Ecosystem {
     }
 
     /// Parses dependencies from a manifest's contents.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the manifest can't be parsed, or a dependency section or
+    /// entry is malformed.
     pub fn dependencies(self, contents: &str) -> Result<Vec<Dependency>, ParseError> {
         match self {
             Self::Rust => rust::dependencies(contents),
@@ -64,6 +74,10 @@ impl Ecosystem {
     }
 
     /// Returns outdated-version details for a requirement and its releases.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the requirement is invalid, or no non-yanked release matches it.
     pub fn outdated(
         self,
         requirement: &str,
@@ -77,6 +91,11 @@ impl Ecosystem {
     }
 
     /// Pins dependencies in a manifest to the selected release versions.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the manifest can't be parsed, or a dependency section or
+    /// entry is malformed.
     pub fn pin(self, contents: &str, updates: &[Update]) -> Result<String, ParseError> {
         match self {
             Self::Rust => rust::pin(contents, updates),
@@ -102,8 +121,8 @@ impl Project {
     pub(crate) fn new(ecosystem: Ecosystem, manifest: PathBuf) -> Option<Self> {
         manifest.parent()?;
         Some(Self {
-            ecosystem,
             manifest,
+            ecosystem,
         })
     }
 
@@ -118,6 +137,11 @@ impl Project {
     }
 
     /// The project directory, which is the directory containing the manifest.
+    #[expect(
+        clippy::expect_used,
+        clippy::missing_panics_doc,
+        reason = "Project::new rejects manifests without a parent, so this can't panic"
+    )]
     pub fn dir(&self) -> &Path {
         self.manifest
             .parent()

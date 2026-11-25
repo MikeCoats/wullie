@@ -6,10 +6,10 @@ use serde::Deserialize;
 use super::{RegistryError, Release};
 
 /// The crates.io sparse index, the endpoint Cargo itself uses.
-pub const INDEX_URL: &str = "https://index.crates.io";
+pub(super) const INDEX_URL: &str = "https://index.crates.io";
 
 /// Builds the full crates.io sparse-index URL for a package path.
-pub fn url(path: &str) -> String {
+pub(super) fn url(path: &str) -> String {
     format!("{INDEX_URL}/{path}")
 }
 
@@ -37,7 +37,7 @@ fn is_valid_name(name: &str) -> bool {
 }
 
 /// Returns a crate's path within the sparse index, e.g. `se/rd/serde`.
-pub fn index_path(name: &str) -> Result<String, RegistryError> {
+pub(super) fn index_path(name: &str) -> Result<String, RegistryError> {
     if !is_valid_name(name) {
         return Err(RegistryError::invalid_name());
     }
@@ -52,7 +52,7 @@ pub fn index_path(name: &str) -> Result<String, RegistryError> {
 }
 
 /// Parses a sparse-index body, one JSON object per line.
-pub fn parse_index(body: &str) -> Result<Vec<Release>, RegistryError> {
+pub(super) fn parse_index(body: &str) -> Result<Vec<Release>, RegistryError> {
     body.lines()
         .filter(|line| !line.trim().is_empty())
         .map(|line| {

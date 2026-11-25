@@ -12,9 +12,9 @@ use crate::project::Ecosystem;
 use super::{RegistryError, Release};
 
 /// The PyPI Simple API endpoint.
-pub const INDEX_URL: &str = "https://pypi.org/simple";
+pub(super) const INDEX_URL: &str = "https://pypi.org/simple";
 /// Requests the JSON representation of the Simple API.
-pub const ACCEPT: &str = "application/vnd.pypi.simple.v1+json";
+pub(super) const ACCEPT: &str = "application/vnd.pypi.simple.v1+json";
 
 const ARCHIVE_SUFFIXES: &[&str] = &[
     ".tar.gz",
@@ -50,7 +50,7 @@ struct File {
 #[serde(untagged)]
 enum Yanked {
     Flag(bool),
-    Reason(String),
+    Reason(#[expect(dead_code, reason = "any reason marks the release as yanked")] String),
 }
 
 impl Default for Yanked {
@@ -63,10 +63,7 @@ impl Yanked {
     fn is_yanked(&self) -> bool {
         match self {
             Self::Flag(yanked) => *yanked,
-            Self::Reason(reason) => {
-                let _reason = reason;
-                true
-            }
+            Self::Reason(_) => true,
         }
     }
 }
@@ -87,7 +84,7 @@ fn is_valid_name(name: &str) -> bool {
 }
 
 /// Returns a project's normalized path within PyPI's Simple API.
-pub fn index_path(name: &str) -> Result<String, RegistryError> {
+pub(super) fn index_path(name: &str) -> Result<String, RegistryError> {
     if !is_valid_name(name) {
         return Err(RegistryError::invalid_name());
     }
@@ -95,12 +92,12 @@ pub fn index_path(name: &str) -> Result<String, RegistryError> {
 }
 
 /// Builds the full PyPI Simple API URL for a normalized package path.
-pub fn url(path: &str) -> String {
+pub(super) fn url(path: &str) -> String {
     format!("{INDEX_URL}/{path}/")
 }
 
 /// Parses the JSON Simple API response into releases with per-version yanked status.
-pub fn parse_index(body: &str) -> Result<Vec<Release>, RegistryError> {
+pub(super) fn parse_index(body: &str) -> Result<Vec<Release>, RegistryError> {
     let project: Project = serde_json::from_str(body).map_err(RegistryError::index)?;
     let available_versions: HashSet<_> = project
         .files

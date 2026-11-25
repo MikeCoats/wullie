@@ -120,6 +120,13 @@ Every sentence should be written on its own line.
 Rendered HTML joins the lines back into paragraphs, and diffs then show exactly which sentence changed.
 Reference-style links are preferred to inline links.
 
+## Lints
+
+Some of our CI GitHub Actions were failing due to more restrictive linting rules.
+We've now enabled some lints in `Cargo.toml` to turn on clippy's `pedantic` group and a few restriction lints, such as `unwrap_used` and `print_stdout`.
+`clippy.toml` exempts tests from the restriction lints.
+When an exception is needed, use `#[expect(lint, reason = "...")]` rather than `#[allow]`, so the reason is recorded and the attribute fails once it's no longer needed.
+
 ## Before Submitting
 
 Make sure `just ci` passes.

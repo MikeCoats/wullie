@@ -9,6 +9,7 @@
 //! Prose is written as single-line paragraphs; clap wraps them to the
 //! terminal width and roff wraps them to the page.
 
+use std::fmt::Write as _;
 use std::path::PathBuf;
 
 use clap::Parser;
@@ -52,6 +53,7 @@ pub struct Section {
     pub title: &'static str,
     /// The heading used by the man page, following man page conventions.
     pub man_title: &'static str,
+    /// The section's content, in order.
     pub blocks: &'static [Block],
 }
 
@@ -149,16 +151,18 @@ fn help_section(section: &Section) -> String {
             "\n\n"
         });
         match block {
-            Block::Paragraph(paragraph) => text.push_str(&format!("  {paragraph}")),
+            Block::Paragraph(paragraph) => {
+                let _ = write!(text, "  {paragraph}");
+            }
             Block::Preformatted(lines) => {
                 let lines: Vec<_> = lines.iter().map(|line| format!("    {line}")).collect();
                 text.push_str(&lines.join("\n"));
             }
             Block::Item(term, description) => {
-                text.push_str(&format!("  {term}  {description}"));
+                let _ = write!(text, "  {term}  {description}");
             }
             Block::Example(description, command) => {
-                text.push_str(&format!("  {description}:\n    {command}"));
+                let _ = write!(text, "  {description}:\n    {command}");
             }
         }
         previous = Some(block);

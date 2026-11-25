@@ -1,6 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Mike Coats <i.am@mikecoats.com>
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+//! The Diff Maker: pins outdated dependencies and builds the changes as one
+//! unified diff.
+
 use std::fmt::Write as _;
 use std::fs;
 use std::io;

@@ -1,6 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Mike Coats <i.am@mikecoats.com>
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+//! Walks a directory tree for manifests, skipping hidden, ignored and
+//! dependency directories.
+
 use std::path::{Path, PathBuf};
 
 use ignore::{DirEntry, WalkBuilder};
@@ -27,7 +30,7 @@ pub fn files(
         .hidden(true)
         .require_git(false)
         // Results are re-sorted by the caller; sorting here keeps warnings in a stable order.
-        .sort_by_file_name(|left, right| left.cmp(right))
+        .sort_by_file_name(Ord::cmp)
         .filter_entry(move |entry: &DirEntry| {
             if entry.depth() == 0 || !entry.file_type().is_some_and(|kind| kind.is_dir()) {
                 return true;
@@ -123,14 +126,11 @@ mod tests {
     #[test]
     fn walk_error_preserves_display_and_source() {
         let inner = ignore::Error::from(std::io::Error::other("walk failed"));
-        let source = StdError::source(&inner).map(|error| error.to_string());
+        let source = StdError::source(&inner).map(ToString::to_string);
         let error = super::WalkError(inner);
 
         assert_eq!(error.to_string(), "walk failed");
-        assert_eq!(
-            StdError::source(&error).map(|source| source.to_string()),
-            source
-        );
+        assert_eq!(StdError::source(&error).map(ToString::to_string), source);
     }
 
     #[test]

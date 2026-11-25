@@ -18,15 +18,15 @@ use crate::update::{self, CompareError, Outdated, Update};
 /// Directories holding installed dependencies rather than projects.
 /// Every directory with one of these names is pruned, including ones in
 /// non-JavaScript trees.
-pub const SKIP_DIRS: &[&str] = &["node_modules", "bower_components"];
+pub(super) const SKIP_DIRS: &[&str] = &["node_modules", "bower_components"];
 
 /// Returns whether `file_name` is a `package.json` manifest.
-pub fn is_manifest(file_name: &OsStr) -> bool {
+pub(super) fn is_manifest(file_name: &OsStr) -> bool {
     file_name == "package.json"
 }
 
 /// Leaves JavaScript package names unchanged.
-pub fn normalize_name(name: &str) -> String {
+pub(super) fn normalize_name(name: &str) -> String {
     name.to_owned()
 }
 
@@ -34,7 +34,10 @@ pub fn normalize_name(name: &str) -> String {
 ///
 /// A requirement that is not a range but is a valid dist-tag, such as
 /// `latest`, names no version, so it is treated like `*`.
-pub fn outdated(requirement: &str, releases: &[Release]) -> Result<Option<Outdated>, CompareError> {
+pub(super) fn outdated(
+    requirement: &str,
+    releases: &[Release],
+) -> Result<Option<Outdated>, CompareError> {
     let range = match Range::parse(requirement) {
         Ok(range) => range,
         Err(_) if is_dist_tag(requirement) => Range::any(),
@@ -114,7 +117,7 @@ const FIELDS: &[&str] = &[
 ];
 
 /// Parses registry dependencies from the supported `package.json` fields.
-pub fn dependencies(contents: &str) -> Result<Vec<Dependency>, ParseError> {
+pub(super) fn dependencies(contents: &str) -> Result<Vec<Dependency>, ParseError> {
     let document = serde_json::from_str::<PackageJson>(contents).map_err(ParseError::json)?;
     let mut dependencies = Vec::new();
 
@@ -138,7 +141,7 @@ pub fn dependencies(contents: &str) -> Result<Vec<Dependency>, ParseError> {
 ///
 /// Only the matching requirement strings are rewritten, so the rest of the
 /// file keeps its formatting, key order and indentation.
-pub fn pin(contents: &str, updates: &[Update]) -> Result<String, ParseError> {
+pub(super) fn pin(contents: &str, updates: &[Update]) -> Result<String, ParseError> {
     // Report malformed manifests exactly as the Dependency Finder does.
     dependencies(contents)?;
 
@@ -341,11 +344,11 @@ mod tests {
         }
     }
 
-    fn outdated_versions(lowest: &str, latest: &str) -> Option<Outdated> {
-        Some(Outdated {
+    fn outdated_versions(lowest: &str, latest: &str) -> Outdated {
+        Outdated {
             lowest: lowest.to_owned(),
             latest: latest.to_owned(),
-        })
+        }
     }
 
     #[test]
@@ -484,7 +487,7 @@ mod tests {
                 ]
             )
             .unwrap(),
-            outdated_versions("1.2.0", "1.9.0")
+            Some(outdated_versions("1.2.0", "1.9.0"))
         );
     }
 
@@ -492,7 +495,7 @@ mod tests {
     fn a_bare_version_is_an_exact_requirement_unlike_cargo() {
         assert_eq!(
             outdated("1.2.0", &[release("1.2.0", false), release("1.2.1", false)]).unwrap(),
-            outdated_versions("1.2.0", "1.2.1")
+            Some(outdated_versions("1.2.0", "1.2.1"))
         );
         assert_eq!(
             outdated("1.2.1", &[release("1.2.0", false), release("1.2.1", false)]).unwrap(),
@@ -524,23 +527,23 @@ mod tests {
 
         assert_eq!(
             outdated("~1.2.3", &releases).unwrap(),
-            outdated_versions("1.2.5", "3.0.0")
+            Some(outdated_versions("1.2.5", "3.0.0"))
         );
         assert_eq!(
             outdated("1.3.x", &releases).unwrap(),
-            outdated_versions("1.3.0", "3.0.0")
+            Some(outdated_versions("1.3.0", "3.0.0"))
         );
         assert_eq!(
             outdated(">=1.2.1 <2", &releases).unwrap(),
-            outdated_versions("1.2.5", "3.0.0")
+            Some(outdated_versions("1.2.5", "3.0.0"))
         );
         assert_eq!(
             outdated("2.0.0 - 3.0.0", &releases).unwrap(),
-            outdated_versions("2.0.0", "3.0.0")
+            Some(outdated_versions("2.0.0", "3.0.0"))
         );
         assert_eq!(
             outdated("^3 || ^2", &releases).unwrap(),
-            outdated_versions("2.0.0", "3.0.0")
+            Some(outdated_versions("2.0.0", "3.0.0"))
         );
     }
 
@@ -558,7 +561,7 @@ mod tests {
         for requirement in ["", "*", "x", "latest", "next"] {
             assert_eq!(
                 outdated(requirement, &releases).unwrap(),
-                outdated_versions("1.0.0", "1.1.0"),
+                Some(outdated_versions("1.0.0", "1.1.0")),
                 "{requirement:?}"
             );
         }
@@ -577,7 +580,7 @@ mod tests {
                 ]
             )
             .unwrap(),
-            outdated_versions("1.0.1", "1.5.0")
+            Some(outdated_versions("1.0.1", "1.5.0"))
         );
     }
 
@@ -591,7 +594,7 @@ mod tests {
 
         assert_eq!(
             outdated("=2.0.0-rc.2", &releases).unwrap(),
-            outdated_versions("2.0.0-rc.2", "2.1.0-beta.1")
+            Some(outdated_versions("2.0.0-rc.2", "2.1.0-beta.1"))
         );
         assert_eq!(
             outdated(
@@ -599,7 +602,7 @@ mod tests {
                 &[release("2.0.0-rc.1", false), release("2.0.0", false)]
             )
             .unwrap(),
-            outdated_versions("2.0.0-rc.1", "2.0.0")
+            Some(outdated_versions("2.0.0-rc.1", "2.0.0"))
         );
     }
 
@@ -696,11 +699,7 @@ mod tests {
 
     #[test]
     fn pin_leaves_manifests_without_matches_or_dependencies_unchanged() {
-        for contents in [
-            r#"{}"#,
-            " { \"name\": \"x\" } \n",
-            r#"{"dependencies": {}}"#,
-        ] {
+        for contents in [r"{}", " { \"name\": \"x\" } \n", r#"{"dependencies": {}}"#] {
             assert_eq!(
                 pin(contents, &[update("dep", "^1", "1.0.0")]).unwrap(),
                 contents

@@ -1,6 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Mike Coats <i.am@mikecoats.com>
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+//! The Dependency Finder: reads each project's manifest into a list of
+//! declared dependencies and their version requirements.
+
 use std::collections::HashSet;
 use std::fs;
 use std::io;
@@ -182,14 +185,11 @@ mod tests {
     fn parse_error_preserves_display_and_source() {
         let inner = "[broken".parse::<toml_edit::DocumentMut>().unwrap_err();
         let display = inner.to_string();
-        let source = StdError::source(&inner).map(|error| error.to_string());
+        let source = StdError::source(&inner).map(ToString::to_string);
         let error = ParseError::toml(inner);
 
         assert_eq!(error.to_string(), display);
-        assert_eq!(
-            StdError::source(&error).map(|source| source.to_string()),
-            source
-        );
+        assert_eq!(StdError::source(&error).map(ToString::to_string), source);
     }
 
     #[test]

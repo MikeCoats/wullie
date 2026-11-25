@@ -1,0 +1,9 @@
+# SPDX-FileCopyrightText: 2026 Mike Coats <i.am@mikecoats.com>
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-print-in-tests = true
+
+doc-valid-idents = ["PyPI", ".."]

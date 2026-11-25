@@ -9,10 +9,10 @@ use crate::project::Ecosystem;
 use super::{RegistryError, Release};
 
 /// The public npm registry, the endpoint npm itself uses.
-pub const INDEX_URL: &str = "https://registry.npmjs.org";
+pub(super) const INDEX_URL: &str = "https://registry.npmjs.org";
 /// Requests the abbreviated package document npm uses for installs, which is
 /// far smaller than the full document and still lists every version.
-pub const ACCEPT: &str = "application/vnd.npm.install-v1+json";
+pub(super) const ACCEPT: &str = "application/vnd.npm.install-v1+json";
 
 /// The longest package name, including any scope, the npm registry accepts.
 const MAX_NAME_LEN: usize = 214;
@@ -69,7 +69,7 @@ fn is_valid_name(name: &str) -> bool {
 }
 
 /// Returns a package's path within the npm registry, e.g. `@types/node`.
-pub fn index_path(name: &str) -> Result<String, RegistryError> {
+pub(super) fn index_path(name: &str) -> Result<String, RegistryError> {
     if !is_valid_name(name) {
         return Err(RegistryError::invalid_name());
     }
@@ -78,12 +78,12 @@ pub fn index_path(name: &str) -> Result<String, RegistryError> {
 
 /// Builds the full npm registry URL for a package path, encoding a scoped
 /// package's `/` as npm does.
-pub fn url(path: &str) -> String {
+pub(super) fn url(path: &str) -> String {
     format!("{INDEX_URL}/{}", path.replace('/', "%2f"))
 }
 
 /// Parses a package document into releases, treating deprecated versions as yanked.
-pub fn parse_index(body: &str) -> Result<Vec<Release>, RegistryError> {
+pub(super) fn parse_index(body: &str) -> Result<Vec<Release>, RegistryError> {
     let package: Package = serde_json::from_str(body).map_err(RegistryError::index)?;
     Ok(package
         .versions

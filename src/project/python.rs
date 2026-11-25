@@ -18,15 +18,15 @@ use crate::update::{self, CompareError, Outdated, Update};
 ///
 /// Virtualenvs are caught by `site-packages` whatever the venv is called;
 /// hidden ones like `.venv` and `.tox` are already skipped by the walk.
-pub const SKIP_DIRS: &[&str] = &["__pycache__", "__pypackages__", "site-packages"];
+pub(super) const SKIP_DIRS: &[&str] = &["__pycache__", "__pypackages__", "site-packages"];
 
 /// Returns whether `file_name` is a `pyproject.toml` manifest.
-pub fn is_manifest(file_name: &OsStr) -> bool {
+pub(super) fn is_manifest(file_name: &OsStr) -> bool {
     file_name == "pyproject.toml"
 }
 
 /// Normalizes a package name according to PEP 503.
-pub fn normalize_name(name: &str) -> String {
+pub(super) fn normalize_name(name: &str) -> String {
     let mut normalized = String::with_capacity(name.len());
     let mut separator = false;
 
@@ -46,7 +46,10 @@ pub fn normalize_name(name: &str) -> String {
 }
 
 /// Compares a Python requirement with published releases.
-pub fn outdated(requirement: &str, releases: &[Release]) -> Result<Option<Outdated>, CompareError> {
+pub(super) fn outdated(
+    requirement: &str,
+    releases: &[Release],
+) -> Result<Option<Outdated>, CompareError> {
     let specifiers = if requirement.is_empty() {
         VersionSpecifiers::empty()
     } else {
@@ -55,7 +58,7 @@ pub fn outdated(requirement: &str, releases: &[Release]) -> Result<Option<Outdat
     };
     let includes_prereleases = specifiers
         .iter()
-        .any(|specifier| specifier.any_prerelease());
+        .any(pep440_rs::VersionSpecifier::any_prerelease);
     let mut versions = update::published(releases, |version| Version::from_str(version).ok());
     // Pre-releases the requirement doesn't ask for are dropped before
     // matching, so they can't be the lowest matching release either.
@@ -64,7 +67,7 @@ pub fn outdated(requirement: &str, releases: &[Release]) -> Result<Option<Outdat
 }
 
 /// Parses Python dependency requirements from PEP 621 and PEP 735 tables.
-pub fn dependencies(contents: &str) -> Result<Vec<Dependency>, ParseError> {
+pub(super) fn dependencies(contents: &str) -> Result<Vec<Dependency>, ParseError> {
     let document = contents.parse::<DocumentMut>().map_err(ParseError::toml)?;
     let mut dependencies = Vec::new();
 
@@ -113,7 +116,7 @@ pub fn dependencies(contents: &str) -> Result<Vec<Dependency>, ParseError> {
 }
 
 /// Pins matching Python dependencies to their selected release versions.
-pub fn pin(contents: &str, updates: &[Update]) -> Result<String, ParseError> {
+pub(super) fn pin(contents: &str, updates: &[Update]) -> Result<String, ParseError> {
     let mut document = contents.parse::<DocumentMut>().map_err(ParseError::toml)?;
 
     if let Some(project) = document

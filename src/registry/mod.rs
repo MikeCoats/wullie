@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Mike Coats <i.am@mikecoats.com>
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+//! Registry clients that look up the releases published for a package.
+
 mod cache;
 mod javascript;
 mod python;
@@ -34,6 +36,11 @@ pub struct Release {
 /// A source of published releases for an ecosystem.
 pub trait Registry {
     /// Returns all published releases for a package.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the name is invalid for its ecosystem, the package isn't
+    /// found, or the lookup or its response fails.
     fn releases(&self, ecosystem: Ecosystem, name: &str) -> Result<Vec<Release>, RegistryError>;
 }
 
@@ -41,11 +48,11 @@ pub trait Registry {
 ///
 /// Each ecosystem's index rules live in its own module; these functions
 /// dispatch to them, like the methods on `Ecosystem` do for manifests.
-fn url(ecosystem: Ecosystem, path: &str) -> Result<String, RegistryError> {
+fn url(ecosystem: Ecosystem, path: &str) -> String {
     match ecosystem {
-        Ecosystem::Rust => Ok(rust::url(path)),
-        Ecosystem::Python => Ok(python::url(path)),
-        Ecosystem::JavaScript => Ok(javascript::url(path)),
+        Ecosystem::Rust => rust::url(path),
+        Ecosystem::Python => python::url(path),
+        Ecosystem::JavaScript => javascript::url(path),
     }
 }
 
@@ -156,7 +163,7 @@ impl Registry for HttpRegistry {
             return Ok(releases);
         }
 
-        let body = self.fetch(&url(ecosystem, &path)?, accept(ecosystem))?;
+        let body = self.fetch(&url(ecosystem, &path), accept(ecosystem))?;
         let releases = parse_index(ecosystem, &body)?;
         self.store(&key, &body);
         Ok(releases)
@@ -276,7 +283,7 @@ mod tests {
     fn rust_dispatches_to_its_index_rules() {
         assert_eq!(index_path(Ecosystem::Rust, "Serde").unwrap(), "se/rd/serde");
         assert_eq!(
-            url(Ecosystem::Rust, "se/rd/serde").unwrap(),
+            url(Ecosystem::Rust, "se/rd/serde"),
             "https://index.crates.io/se/rd/serde"
         );
         assert_eq!(accept(Ecosystem::Rust), None);
@@ -286,7 +293,7 @@ mod tests {
     fn python_dispatches_to_pypi_index_rules() {
         assert_eq!(index_path(Ecosystem::Python, "Foo_Bar").unwrap(), "foo-bar");
         assert_eq!(
-            url(Ecosystem::Python, "foo-bar").unwrap(),
+            url(Ecosystem::Python, "foo-bar"),
             "https://pypi.org/simple/foo-bar/"
         );
         assert_eq!(
@@ -302,7 +309,7 @@ mod tests {
             "@types/node"
         );
         assert_eq!(
-            url(Ecosystem::JavaScript, "@types/node").unwrap(),
+            url(Ecosystem::JavaScript, "@types/node"),
             "https://registry.npmjs.org/@types%2fnode"
         );
         assert_eq!(

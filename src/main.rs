@@ -1,6 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Mike Coats <i.am@mikecoats.com>
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+//! The `wullie` command: finds out-of-date dependencies under a directory and
+//! prints a diff that pins them.
+
 use std::env;
 use std::error::Error;
 use std::fs;

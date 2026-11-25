@@ -13,20 +13,23 @@ use crate::update::{self, CompareError, Outdated, Update};
 
 /// Cargo's build output directory. Every directory with this name is pruned,
 /// including ones in non-Rust trees.
-pub const SKIP_DIRS: &[&str] = &["target"];
+pub(super) const SKIP_DIRS: &[&str] = &["target"];
 
 /// Returns whether `file_name` is a Cargo manifest.
-pub fn is_manifest(file_name: &OsStr) -> bool {
+pub(super) fn is_manifest(file_name: &OsStr) -> bool {
     file_name == "Cargo.toml"
 }
 
 /// Normalizes crate names for registry lookups.
-pub fn normalize_name(name: &str) -> String {
+pub(super) fn normalize_name(name: &str) -> String {
     name.to_ascii_lowercase()
 }
 
 /// Compares a Cargo requirement with published releases.
-pub fn outdated(requirement: &str, releases: &[Release]) -> Result<Option<Outdated>, CompareError> {
+pub(super) fn outdated(
+    requirement: &str,
+    releases: &[Release],
+) -> Result<Option<Outdated>, CompareError> {
     let requirement = VersionReq::parse(requirement).map_err(CompareError::invalid_requirement)?;
     let includes_prereleases = requirement
         .comparators
@@ -44,7 +47,7 @@ pub fn outdated(requirement: &str, releases: &[Release]) -> Result<Option<Outdat
 const TABLES: &[&str] = &["dependencies", "dev-dependencies", "build-dependencies"];
 
 /// Parses Cargo dependency requirements from a manifest.
-pub fn dependencies(contents: &str) -> Result<Vec<Dependency>, ParseError> {
+pub(super) fn dependencies(contents: &str) -> Result<Vec<Dependency>, ParseError> {
     let document = contents.parse::<DocumentMut>().map_err(ParseError::toml)?;
     let mut dependencies = Vec::new();
 
@@ -63,7 +66,7 @@ pub fn dependencies(contents: &str) -> Result<Vec<Dependency>, ParseError> {
 }
 
 /// Pins matching Cargo dependencies to their selected release versions.
-pub fn pin(contents: &str, updates: &[Update]) -> Result<String, ParseError> {
+pub(super) fn pin(contents: &str, updates: &[Update]) -> Result<String, ParseError> {
     let mut document = contents.parse::<DocumentMut>().map_err(ParseError::toml)?;
 
     for (name, item) in document.iter_mut() {
@@ -158,7 +161,7 @@ fn dependency_tables(document: &DocumentMut) -> Result<Vec<(String, &Item)>, Par
 
     for (name, item) in document.iter() {
         if TABLES.contains(&name) {
-            tables.push((name.to_string(), item));
+            tables.push((name.to_owned(), item));
         }
     }
 

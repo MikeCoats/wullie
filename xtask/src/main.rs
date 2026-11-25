@@ -7,6 +7,7 @@
 //! `wullie::cli`: the man page and shell completions.
 
 use std::fs;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -45,19 +46,24 @@ fn main() -> Result<()> {
         Task::Man { out_dir } => {
             let out_dir = out_dir.unwrap_or_else(|| workspace_root().join("target/man"));
             let path = write_man_page(&out_dir)?;
-            println!("{}", path.display());
+            writeln!(io::stdout(), "{}", path.display())?;
             Ok(())
         }
         Task::Completions { out_dir } => {
             let out_dir = out_dir.unwrap_or_else(|| workspace_root().join("target/completions"));
+            let mut stdout = io::stdout().lock();
             for path in write_completions(&out_dir)? {
-                println!("{}", path.display());
+                writeln!(stdout, "{}", path.display())?;
             }
             Ok(())
         }
     }
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "Cargo always builds xtask from inside the workspace"
+)]
 fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
