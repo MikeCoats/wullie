@@ -28,13 +28,13 @@ SPDX-License-Identifier: GPL-3.0-or-later
 - [ ] Bugs and Features
   - [ ] IPv6 Happy Eyeballs
 - [ ] Package
-  - [ ] As a tar.gz
+  - [x] As a tar.gz
     - [x] Linux x64
     - [x] Linux ARM
     - [x] Linux x64-musl
     - [x] Mac ARM
-    - [ ] Windows x64
-    - [ ] Mac x64
+    - [x] Windows x64
+    - [x] Mac x64
   - [x] As a runnable crate
   - [ ] As a dpkg
 - [ ] Repos
