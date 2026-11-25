@@ -3,3 +3,9 @@
 
 [toolchain]
 channel = "1.100"
+# Listed explicitly: without a profile here, rustup uses the installation's
+# own profile, which is `minimal` on GitHub's runners, not `default` like the
+# rustup docs state. We then add in the specific components we want so that
+# GHA gives us the right pieces for our puzzle.
+profile = "minimal"
+components = ["clippy", "rustfmt"]
