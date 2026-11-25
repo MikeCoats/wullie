@@ -220,16 +220,21 @@ fn parse_dependency(
             })?),
             None => None,
         };
+        // Only crates.io dependencies are checked. A `path` or `git`
+        // dependency's `version` is only used once the crate is published, so
+        // until then it describes the local or git copy, which may be newer
+        // than crates.io, unpublished, or a different crate that shares a name
+        // with one on crates.io. Pinning it to a crates.io release could make
+        // it stop matching the copy Cargo actually builds.
         if table.get("workspace").and_then(Item::as_bool) == Some(true)
             || table.get("registry").is_some()
             || table.get("registry-index").is_some()
+            || table.get("path").is_some()
+            || table.get("git").is_some()
         {
             return Ok(None);
         }
         let Some(requirement) = version else {
-            if table.get("path").is_some() || table.get("git").is_some() {
-                return Ok(None);
-            }
             return Err(ParseError::missing_source(key));
         };
         (name, requirement)
@@ -286,7 +291,7 @@ mod tests {
             r#"
                 [dependencies]
                 serde = "1"
-                foo = { package = "bar", version = "^0.4", path = "../bar" }
+                foo = { package = "bar", version = "^0.4" }
 
                 [dependencies.section_crate]
                 version = "=2.1.3"
@@ -309,7 +314,7 @@ mod tests {
         let contents = r#"# manifest comment
 [dependencies]
 serde = "1" # serde comment
-renamed = { package = "renamed-crate", version = "^0.4", path = "../renamed" }
+renamed = { package = "renamed-crate", version = "^0.4" }
 
 [dependencies.section_crate]
 version = "=2.1.3" # section comment
@@ -370,6 +375,24 @@ shared = "3"
             pinned,
             "[package]\r\nname = \"a\"\r\n\r\n[dependencies]\r\nserde = \"=1.0.229\" # c\r\nanyhow = \"1\"\r\n"
         );
+    }
+
+    #[test]
+    fn pin_leaves_path_and_git_versions_alone() {
+        let contents = "[dependencies]\n\
+            serde = { path = \"../serde\", version = \"1\" }\n\
+            anyhow = { git = \"https://example.invalid/anyhow\", version = \"1\" }\n";
+
+        let pinned = pin(
+            contents,
+            &[
+                update("serde", "1", "1.0.229"),
+                update("anyhow", "1", "1.0.105"),
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(pinned, contents);
     }
 
     #[test]
@@ -543,10 +566,11 @@ shared = "3"
     }
 
     #[test]
-    fn keeps_git_and_path_dependencies_with_versions_and_skips_unversioned_entries() {
+    fn skips_git_path_and_workspace_dependencies_even_with_versions() {
         let dependencies = dependencies(
             r#"
                 [dependencies]
+                registry_crate = "1"
                 path_with_version = { path = "../path", version = "1" }
                 git_with_version = { git = "https://example.invalid/repo", version = "^2" }
                 workspace_inherited = { workspace = true }
@@ -556,13 +580,7 @@ shared = "3"
         )
         .unwrap();
 
-        assert_eq!(
-            dependencies,
-            vec![
-                dependency("path_with_version", "1"),
-                dependency("git_with_version", "^2"),
-            ]
-        );
+        assert_eq!(dependencies, vec![dependency("registry_crate", "1")]);
     }
 
     #[test]

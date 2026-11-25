@@ -35,7 +35,7 @@ If you need to fetch a fresh dependency for a recent security update, run `wulli
 ## Nerdy Details
 
 For Rust packages, `wullie` checks the crates.io sparse index at `https://index.crates.io`.
-Rust dependencies that specify `registry` or `registry-index` are omitted, so private packages are not compared with same-named crates.io packages.
+Rust dependencies that specify `registry`, `registry-index`, `path` or `git`, or are inherited with `workspace = true`, are omitted, so private and local packages are not compared with same-named crates.io packages.
 
 For Python packages, `wullie` checks the PyPI Simple API at `https://pypi.org/simple`.
 Python dependencies with declared extras and environment markers are retained.
