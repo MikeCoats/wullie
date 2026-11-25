@@ -20,3 +20,20 @@ jobs:
       - uses: taiki-e/install-action@just
       - run: pipx install reuse
       - run: just ci
+
+  # Builds and tests on Windows. Formatting, licensing, packaging and the
+  # generated docs don't depend on the OS, so the job above covers those.
+  windows:
+    runs-on: windows-latest
+    steps:
+      # Check out with LF line endings, as on every other platform, rather
+      # than Git for Windows' default of converting them to CRLF.
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      # Installs the version and components named in rust-toolchain.toml.
+      - run: rustup toolchain install
+      - uses: taiki-e/install-action@just
+      - run: just lint
+      - run: just test

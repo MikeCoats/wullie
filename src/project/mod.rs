@@ -52,7 +52,7 @@ pub(crate) fn find_projects(root: &Path) -> ProjectFindings {
         projects.extend(
             Ecosystem::iter()
                 .filter(|ecosystem| ecosystem.is_manifest(file_name))
-                .filter_map(|ecosystem| Project::new(ecosystem, file.clone())),
+                .map(|ecosystem| Project::new(ecosystem, file.clone())),
         );
     }
 
@@ -161,13 +161,12 @@ pub(crate) struct Project {
 }
 
 impl Project {
-    /// Creates a project from its manifest path, or `None` if the path has no parent directory.
-    pub(crate) fn new(ecosystem: Ecosystem, manifest: PathBuf) -> Option<Self> {
-        manifest.parent()?;
-        Some(Self {
+    /// Creates a project from its manifest path.
+    pub(crate) fn new(ecosystem: Ecosystem, manifest: PathBuf) -> Self {
+        Self {
             manifest,
             ecosystem,
-        })
+        }
     }
 
     /// The ecosystem this project belongs to.
@@ -276,7 +275,7 @@ mod tests {
     }
 
     fn project(ecosystem: Ecosystem, manifest: &Path) -> Project {
-        Project::new(ecosystem, manifest.to_path_buf()).unwrap()
+        Project::new(ecosystem, manifest.to_path_buf())
     }
 
     #[test]
@@ -497,13 +496,31 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn skips_symbolic_links_to_manifests_and_directories() {
+        use std::os::unix::fs::symlink;
+
+        let temp = TempDir::new().unwrap();
+        let outside = temp.path().join("outside");
+        create_manifest(&outside.join("Cargo.toml"));
+        let tree = temp.path().join("tree");
+        fs::create_dir(&tree).unwrap();
+        symlink(outside.join("Cargo.toml"), tree.join("Cargo.toml")).unwrap();
+        symlink(&outside, tree.join("linked")).unwrap();
+
+        let findings = find_projects(&tree);
+
+        assert!(findings.errors.is_empty(), "{:?}", findings.errors);
+        assert!(findings.projects.is_empty(), "{:?}", findings.projects);
+    }
+
     #[test]
     fn project_keeps_its_manifest_path() {
         let project = Project::new(
             Ecosystem::Rust,
             PathBuf::from("/projects/example/Cargo.toml"),
-        )
-        .unwrap();
+        );
 
         assert_eq!(
             project.manifest(),
@@ -514,20 +531,14 @@ mod tests {
 
     #[test]
     fn projects_sort_by_manifest_path() {
-        let root_js =
-            Project::new(Ecosystem::JavaScript, PathBuf::from("/a/package.json")).unwrap();
-        let root_rust = Project::new(Ecosystem::Rust, PathBuf::from("/a/Cargo.toml")).unwrap();
-        let member = Project::new(Ecosystem::Rust, PathBuf::from("/a/b/Cargo.toml")).unwrap();
+        let root_js = Project::new(Ecosystem::JavaScript, PathBuf::from("/a/package.json"));
+        let root_rust = Project::new(Ecosystem::Rust, PathBuf::from("/a/Cargo.toml"));
+        let member = Project::new(Ecosystem::Rust, PathBuf::from("/a/b/Cargo.toml"));
         let mut projects = vec![member.clone(), root_js.clone(), root_rust.clone()];
 
         projects.sort();
 
         assert_eq!(projects, vec![root_rust, member, root_js]);
-    }
-
-    #[test]
-    fn project_requires_a_parent_directory() {
-        assert_eq!(Project::new(Ecosystem::Rust, PathBuf::from("/")), None);
     }
 
     #[test]

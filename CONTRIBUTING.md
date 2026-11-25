@@ -128,6 +128,9 @@ This is intentional: it avoids traversing large generated or vendored trees and 
 A directory is pruned by name even when it is not actually used for that ecosystem.
 The starting directory itself is not pruned, so searching from a directory with one of these names still works.
 
+Symbolic links inside the tree are skipped without a warning, whether they point to a manifest or a directory.
+Following them could leave the tree, loop forever, or produce a diff for a file that lives outside the tree.
+
 ## Exit Codes
 
 - **We follow `ripgrep`.**

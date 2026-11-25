@@ -6,7 +6,7 @@
 
 use std::fmt::Write as _;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use similar::TextDiff;
 
@@ -111,9 +111,21 @@ fn unified_diff(path: &Path, old: &str, new: &str) -> String {
 ///
 /// Also like git, an unquoted name holding a space is followed by a tab, which
 /// tells `patch` where the name ends.
+///
+/// Parts of the path are always joined with `/`, as in every diff, so a
+/// Windows path such as `sub\Cargo.toml` is written `a/sub/Cargo.toml`.
 fn header_name(prefix: &str, path: &Path) -> String {
     let mut bytes = prefix.as_bytes().to_vec();
-    bytes.extend_from_slice(path.as_os_str().as_encoded_bytes());
+    for (index, component) in path.components().enumerate() {
+        if index > 0 && !bytes.ends_with(b"/") {
+            bytes.push(b'/');
+        }
+        match component {
+            Component::RootDir if bytes.ends_with(b"/") => {}
+            Component::RootDir => bytes.push(b'/'),
+            component => bytes.extend_from_slice(component.as_os_str().as_encoded_bytes()),
+        }
+    }
 
     if !bytes.iter().copied().any(needs_quoting) {
         // Only ASCII bytes are left, so the conversion can't fail.
@@ -161,7 +173,7 @@ fn needs_quoting(byte: u8) -> bool {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     use tempfile::TempDir;
 
@@ -172,7 +184,7 @@ mod tests {
     use super::{DiffError, header_name, manifest_diffs, unified_diff};
 
     fn project(ecosystem: Ecosystem, manifest: &Path) -> Project {
-        Project::new(ecosystem, manifest.to_path_buf()).unwrap()
+        Project::new(ecosystem, manifest.to_path_buf())
     }
 
     fn updates(manifest: &Path, name: &str, requirement: &str, latest: &str) -> ProjectUpdates {
@@ -207,6 +219,22 @@ mod tests {
         assert_eq!(
             header_name("a/", Path::new("crates/my-crate_1.0/Cargo.toml")),
             "a/crates/my-crate_1.0/Cargo.toml"
+        );
+    }
+
+    #[test]
+    fn header_name_joins_path_parts_with_forward_slashes() {
+        let path: PathBuf = ["crates", "member", "Cargo.toml"].iter().collect();
+
+        assert_eq!(header_name("a/", &path), "a/crates/member/Cargo.toml");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn header_name_writes_windows_separators_as_forward_slashes() {
+        assert_eq!(
+            header_name("a/", Path::new(r"crates\member\Cargo.toml")),
+            "a/crates/member/Cargo.toml"
         );
     }
 

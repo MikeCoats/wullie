@@ -168,7 +168,7 @@ mod tests {
     };
 
     fn project(ecosystem: Ecosystem, manifest: &Path) -> Project {
-        Project::new(ecosystem, manifest.to_path_buf()).unwrap()
+        Project::new(ecosystem, manifest.to_path_buf())
     }
 
     fn dependency(name: &str, requirement: &str) -> Dependency {

@@ -87,7 +87,8 @@ pub const SECTIONS: &[Section] = &[
             ]),
             Block::Paragraph(
                 "Ignore files and hidden directories are respected, and build and vendor \
-                 directories such as target/ and node_modules/ are skipped. Dependencies on \
+                 directories such as target/ and node_modules/ are skipped. Symbolic links \
+                 inside PATH, to manifests or directories, are skipped too. Dependencies on \
                  private registries, local paths, git repositories, URLs and workspaces are \
                  not checked.",
             ),

@@ -278,7 +278,7 @@ mod tests {
     }
 
     fn project_for(ecosystem: Ecosystem, path: &str) -> Project {
-        Project::new(ecosystem, PathBuf::from(path)).unwrap()
+        Project::new(ecosystem, PathBuf::from(path))
     }
 
     fn project_dependencies(path: &str, dependencies: &[(&str, &str)]) -> ProjectDependencies {

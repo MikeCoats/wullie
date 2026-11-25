@@ -44,6 +44,7 @@ For JavaScript packages, `wullie` checks the npm registry at `https://registry.n
 JavaScript dependencies on local paths, git repositories, URLs or workspaces are omitted, and `npm:` aliases are checked under the package they point to.
 
 `wullie`'s scanner respects standard ignore files and hidden directories, and skips `target/`, `__pycache__/`, `__pypackages__/`, `site-packages/`, `node_modules/` and `bower_components/` directories.
+Symbolic links inside the searched tree, whether to manifests or directories, are skipped too.
 
 ## Contributing
 
