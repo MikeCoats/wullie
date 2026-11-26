@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 Mike Coats <i.am@mikecoats.com>
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Builds a Debian package in dist/ from the release tarball's contents.
+# Run `just tarball <target>` first, or use `just deb <target>`, which does.
+#
+# Usage: pkg/debian/build <target>
+
+set -euo pipefail
+
+if [[ ${#} -ne 1 ]]; then
+    echo "usage: ${0} <target>" >&2
+    exit 2
+fi
+target="${1}"
+
+here="$(cd "$(dirname "${0}")" && pwd)"
+cd "${here}/../.."
+
+case "${target}" in
+    x86_64-unknown-linux-gnu) export DEB_HOST_ARCH=amd64 ;;
+    aarch64-unknown-linux-gnu) export DEB_HOST_ARCH=arm64 ;;
+    *) echo "error: no Debian architecture for ${target}" >&2; exit 1 ;;
+esac
+
+version=$(cargo pkgid | sed 's/.*[#@]//')
+# Debian sorts `~` before a release, as Cargo does `-` for pre-releases,
+# and a `-` would mean a Debian revision.
+deb_version="${version/-/\~}"
+deb="wullie_${deb_version}_${DEB_HOST_ARCH}.deb"
+src="dist/wullie-${version}-${target}"
+SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
+export SOURCE_DATE_EPOCH
+
+if [[ ! -d "${src}" ]]; then
+    echo "error: ${src} is missing; run \`just tarball ${target}\` first" >&2
+    exit 1
+fi
+
+# dpkg's tools expect a source package's layout: debian/ with the control
+# file, and the package's files under debian/wullie.
+work=$(mktemp -d)
+trap 'rm -rf "${work}"' EXIT
+mkdir "${work}/debian"
+cp "${here}/control" "${work}/debian/control"
+root="${work}/debian/wullie"
+doc="${root}/usr/share/doc/wullie"
+
+maintainer=$(sed -n 's/^Maintainer: //p' "${here}/control")
+release="https://github.com/MikeCoats/wullie/releases/tag/v${version}"
+date=$(date -R -u -d "@${SOURCE_DATE_EPOCH}")
+printf 'wullie (%s) unstable; urgency=medium\n\n  * Release %s: %s\n\n -- %s  %s\n' \
+    "${deb_version}" "${version}" "${release}" "${maintainer}" "${date}" \
+    > "${work}/debian/changelog"
+
+install -D -m 755 "${src}/wullie" "${root}/usr/bin/wullie"
+install -D -m 644 "${src}/completions/wullie.bash" "${root}/usr/share/bash-completion/completions/wullie"
+install -D -m 644 "${src}/completions/_wullie" "${root}/usr/share/zsh/vendor-completions/_wullie"
+install -D -m 644 "${src}/completions/wullie.fish" "${root}/usr/share/fish/vendor_completions.d/wullie.fish"
+install -D -m 644 "${here}/copyright" "${doc}/copyright"
+install -d -m 755 "${root}/usr/share/man/man1" "${root}/DEBIAN"
+gzip -9n < "${src}/wullie.1" > "${root}/usr/share/man/man1/wullie.1.gz"
+gzip -9n < "${work}/debian/changelog" > "${doc}/changelog.gz"
+chmod 644 "${root}/usr/share/man/man1/wullie.1.gz" "${doc}/changelog.gz"
+
+(
+    cd "${work}"
+    dpkg-shlibdeps debian/wullie/usr/bin/wullie
+    dpkg-gencontrol -pwullie -Pdebian/wullie -v"${deb_version}"
+)
+(cd "${root}" && find usr -type f -print0 | sort -z | xargs -0 md5sum > DEBIAN/md5sums)
+chmod 644 "${root}/DEBIAN/md5sums"
+
+dpkg-deb --root-owner-group -Zxz --build "${root}" "dist/${deb}"
+lintian --fail-on error,warning "dist/${deb}"
+(cd dist && sha256sum "${deb}" > "${deb}.sha256")
+echo "dist/${deb}"

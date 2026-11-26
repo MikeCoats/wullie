@@ -21,7 +21,7 @@ jobs:
       - run: rustup toolchain install
       - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
         with:
-          tool: just@1.59.0
+          tool: just@1.59.0,shellcheck@0.10.0
       - run: pipx install reuse==6.3.0
       - run: just ci
 

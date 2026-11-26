@@ -56,7 +56,7 @@ Wullie reads files it didn't write and data from the network, so most issues fal
   A way to get raw control characters onto the terminal through them is in scope.
   The diff on stdout reproduces manifest lines exactly, as `git diff` does, so their contents are out of scope there.
 
-- The look-up cache.
+- The lookup cache.
   
   Index bodies are written under `$XDG_CACHE_HOME/wullie/`.
   Writing outside that directory, for example through a crafted package name, or poisoning the cache, is in scope.

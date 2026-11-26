@@ -36,7 +36,11 @@ SPDX-License-Identifier: GPL-3.0-or-later
     - [x] Windows x64
     - [x] Mac x64
   - [x] As a runnable crate
-  - [ ] As a dpkg
+  - [x] As a package
+    - [x] .deb on GitHub releases
+      - [x] amd64
+      - [x] arm64
+    - [ ] Signed apt repository
 - [ ] Repos
   - [x] GitHub
   - [x] GH Actions CI/CD

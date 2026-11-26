@@ -1,0 +1,13 @@
+Source: wullie
+Section: devel
+Priority: optional
+Maintainer: Mike Coats <i.am@mikecoats.com>
+Homepage: https://wullie.mikecoats.xyz
+
+Package: wullie
+Architecture: any
+Depends: ${shlibs:Depends}
+Description: yer local groundskeeper
+ An opinionated tool for managing dependency requirements in Rust,
+ Python and JavaScript projects. It pins each requirement to the exact
+ latest release and prints the changes as a patch.

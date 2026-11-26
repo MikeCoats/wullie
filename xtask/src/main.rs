@@ -112,7 +112,7 @@ fn write_completions(out_dir: &Path) -> Result<Vec<PathBuf>> {
 }
 
 /// The date of the last commit, so the page is reproducible for a given
-/// commit, as `just dist` does for the tarball.
+/// commit, as `just tarball` does.
 fn last_commit_date() -> Option<String> {
     let output = Command::new("git")
         .args(["log", "-1", "--format=%cs"])

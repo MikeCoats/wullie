@@ -10,6 +10,8 @@ SPDX-License-Identifier: GPL-3.0-or-later
 - [Rust][rust] via `rustup`, which installs the version pinned in `rust-toolchain.toml`
 - [`just`][just]: e.g. `cargo install just`, or `cargo binstall just` for a prebuilt binary
 - [`reuse`][reuse] e.g. `pipx install reuse`
+- [`shellcheck`][shellcheck] e.g. `sudo apt install shellcheck` or `brew install shellcheck`
+- For `just deb` only, on Debian or Ubuntu: `dpkg-dev` and `lintian`, e.g. `sudo apt install dpkg-dev lintian`
 
 ## Common Recipes
 
@@ -19,12 +21,14 @@ SPDX-License-Identifier: GPL-3.0-or-later
 | `just ci`          | Run every check that CI runs                        |
 | `just fmt`         | Check formatting with `cargo fmt --check`           |
 | `just lint`        | Lint with clippy, treating warnings as errors       |
+| `just shellcheck`  | Check the packaging scripts in `pkg/`               |
 | `just test`        | Run the test suite                                  |
 | `just reuse`       | Check REUSE licensing compliance with `reuse lint`  |
 | `just package`     | Check the crate packages and builds as published    |
 | `just man`         | Generate the `wullie(1)` man page in `target/man/`  |
 | `just completions` | Generate shell completions in `target/completions/` |
-| `just dist`        | Build a release tarball for this machine in `dist/` |
+| `just tarball`     | Build a release tarball for this machine in `dist/` |
+| `just deb`         | Build a Debian package for this machine in `dist/`  |
 
 ## Licensing
 
@@ -94,14 +98,17 @@ A registry that can't be reached at all, because its name doesn't resolve or con
 The first failure is reported as usual, and the lookups skipped after it are reported in one warning per registry, such as `skipped 212 more lookups on index.crates.io because it couldn't be reached`.
 Lookups skipped because a registry asked, with `Retry-After`, for a longer wait are summed the same way, such as `skipped 40 more lookups on registry.npmjs.org because it asked not to be sent requests yet`.
 
-### Look-up Cache
+Lookups are made one at a time, never in parallel.
+We deliberately don't fetch concurrently: crates.io, PyPI and npm are free, shared services, and a burst of requests from one run isn't a friendly way to use them, even with the back-off and `Retry-After` handling above.
+
+### Lookup Cache
 
 Raw index bodies are stored under `$XDG_CACHE_HOME/wullie/<ecosystem>/<index path>`.
 Each part of the path keeps is formatted such that there are no collisions on case-insensitive filesystems.
 An entry is fresh for a fixed 4 hours from its file modification time, and `--refresh` treats every entry as stale.
 We deliberately don't revalidate with `ETag` or `Last-Modified`: a fixed lifetime is simpler and `--refresh` covers the times freshness matters.
-Each run first deletes entries older than 4 hours, along with any directories left empty, so the cache only holds recent look-ups.
-Pruning always uses the 4 hour lifetime, even with `--refresh`, so a refresh of one tree doesn't empty the cache for every other tree.
+Each run first deletes entries older than 4 hours, along with any directories left empty, so the cache only holds recent lookups.
+Pruning always uses the 4-hour lifetime, even with `--refresh`, so a refresh of one tree doesn't empty the cache for every other tree.
 
 ## Crate Layout
 
@@ -178,6 +185,7 @@ Pushing a `v*` tag starts the release workflow in `.github/workflows/release.yml
 The tag must be `v` followed by the exact version in `Cargo.toml`.
 A tag without the `v` doesn't start the workflow, and a mismatched version fails it.
 It publishes the crate to [crates.io][crates-io] and attaches prebuilt tarballs to a GitHub release, which [`cargo binstall`][binstall] downloads.
+The Linux x64 and ARM builds are also packaged as `.deb` files for `amd64` and `arm64`, which need glibc 2.34 or newer, so they install on Debian 12 and later.
 
 If the version check fails, delete the tag, fix the version, commit, and tag again:
 
@@ -207,5 +215,6 @@ Reference-style links are preferred to inline links.
 [rust]: https://rustup.rs/
 [just]: https://just.systems/
 [reuse]: https://reuse.software/
+[shellcheck]: https://www.shellcheck.net/
 [crates-io]: https://crates.io/crates/wullie
 [binstall]: https://github.com/cargo-bins/cargo-binstall
