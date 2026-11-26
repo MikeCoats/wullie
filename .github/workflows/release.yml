@@ -146,3 +146,28 @@ jobs:
       - run: gh release edit "$TAG" --draft=false --repo "$GITHUB_REPOSITORY"
         env:
           GH_TOKEN: ${{ github.token }}
+
+  website:
+    needs: publish
+    runs-on: ubuntu-24.04
+    environment: website
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The key can only rsync into the site's folder on the server, and the
+      # host key is pinned, so this can't push anywhere else.
+      - name: Set up the deploy key and the server's host key
+        run: |
+          install -d -m 700 ~/.ssh
+          install -m 600 /dev/null ~/.ssh/wullie.website.id_ed25519
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/wullie.website.id_ed25519
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: just@1.59.0
+      - run: just website

@@ -29,6 +29,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 | `just completions` | Generate shell completions in `target/completions/` |
 | `just tarball`     | Build a release tarball for this machine in `dist/` |
 | `just deb`         | Build a Debian package for this machine in `dist/`  |
+| `just website`     | Publish `website/` (needs the deploy key)           |
 
 ## Licensing
 

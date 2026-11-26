@@ -40,7 +40,6 @@ SPDX-License-Identifier: GPL-3.0-or-later
     - [x] .deb on GitHub releases
       - [x] amd64
       - [x] arm64
-    - [ ] Signed apt repository
 - [ ] Repos
   - [x] GitHub
   - [x] GH Actions CI/CD
@@ -51,5 +50,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
   - [x] `--help`
   - [x] Man page
   - [x] Shell completions
-  - [ ] Webpage
+  - [ ] https://wullie.mikecoats.xyz/
+    - [ ] Webpage 
+    - [ ] Signed apt repository
   - [ ] Blog post & socials

@@ -47,3 +47,7 @@ tarball target=`rustc -vV | sed -n 's/^host: //p'`:
 # Build a Debian package in dist/ from the release tarball's contents
 deb target=`rustc -vV | sed -n 's/^host: //p'`: (tarball target)
     bash pkg/debian/build {{target}}
+
+# Publish website/ to wullie.mikecoats.xyz, using the deploy key
+website:
+    rsync -rlpt --delete --chmod=D755,F644 -e 'ssh -i ~/.ssh/wullie.website.id_ed25519' website/ wullie@wullie.mikecoats.xyz:
