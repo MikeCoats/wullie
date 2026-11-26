@@ -34,7 +34,6 @@ SPDX-License-Identifier: GPL-3.0-or-later
     - [x] Linux x64-musl
     - [x] Mac ARM
     - [x] Windows x64
-    - [x] Mac x64
   - [x] As a runnable crate
   - [x] As a package
     - [x] .deb on GitHub releases
