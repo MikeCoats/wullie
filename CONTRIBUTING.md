@@ -104,7 +104,9 @@ We deliberately don't fetch concurrently: crates.io, PyPI and npm are free, shar
 
 ### Lookup Cache
 
-Raw index bodies are stored under `$XDG_CACHE_HOME/wullie/<ecosystem>/<index path>`.
+Raw index bodies are stored under `<cache directory>/<ecosystem>/<index path>`.
+The cache directory is each platform's usual one: `$XDG_CACHE_HOME/wullie` on Linux, `~/Library/Caches/xyz.mikecoats.wullie` on macOS and `%LOCALAPPDATA%\MikeCoats\wullie\cache` on Windows.
+On macOS, a set `$XDG_CACHE_HOME` wins, for people who already keep their caches there; otherwise `~/Library/Caches` keeps the cache out of Time Machine backups and lets macOS clear it when space runs low.
 Each part of the path keeps is formatted such that there are no collisions on case-insensitive filesystems.
 An entry is fresh for a fixed 4 hours from its file modification time, and `--refresh` treats every entry as stale.
 We deliberately don't revalidate with `ETag` or `Last-Modified`: a fixed lifetime is simpler and `--refresh` covers the times freshness matters.

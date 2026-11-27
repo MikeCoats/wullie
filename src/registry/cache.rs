@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Mike Coats <i.am@mikecoats.com>
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+use std::env;
+use std::ffi::OsString;
 use std::fmt::Write as _;
 use std::fs;
 use std::io;
@@ -52,15 +54,26 @@ impl Cache {
         Self { dir, max_age }
     }
 
-    /// The user's cache directory for Wullie, e.g. `$XDG_CACHE_HOME/wullie`.
+    /// The user's cache directory for Wullie, in each platform's usual place:
+    /// `$XDG_CACHE_HOME/wullie` (by default `~/.cache/wullie`) on Linux,
+    /// `~/Library/Caches/xyz.mikecoats.wullie` on macOS, and
+    /// `%LOCALAPPDATA%\MikeCoats\wullie\cache` on Windows.
+    ///
+    /// On macOS, a `$XDG_CACHE_HOME` that is set still wins, so anyone who
+    /// already keeps their caches there finds Wullie's alongside them.
     pub(crate) fn user_dir() -> Option<PathBuf> {
-        let strategy = etcetera::choose_app_strategy(AppStrategyArgs {
-            top_level_domain: "com".to_owned(),
-            author: "Mike Coats".to_owned(),
-            app_name: "wullie".to_owned(),
-        })
-        .ok()?;
-        Some(strategy.cache_dir())
+        let native = || {
+            Some(
+                etcetera::app_strategy::choose_native_strategy(app_args())
+                    .ok()?
+                    .cache_dir(),
+            )
+        };
+        if cfg!(target_os = "macos") {
+            xdg_or(env::var_os("XDG_CACHE_HOME"), native)
+        } else {
+            native()
+        }
     }
 
     /// Returns the entry at `key` if it was written less than `max_age` ago.
@@ -191,6 +204,30 @@ fn escape(part: &[u8]) -> String {
     escaped
 }
 
+/// Who and what Wullie is, for finding its cache directory.
+/// The macOS bundle ID made from these is `xyz.mikecoats.wullie`, after the
+/// website at wullie.mikecoats.xyz.
+fn app_args() -> AppStrategyArgs {
+    AppStrategyArgs {
+        top_level_domain: "xyz".to_owned(),
+        author: "MikeCoats".to_owned(),
+        app_name: "wullie".to_owned(),
+    }
+}
+
+/// `$XDG_CACHE_HOME/wullie` when `xdg_cache_home` is set, or else the
+/// directory `native` gives.
+/// As the XDG spec says, a relative or empty `$XDG_CACHE_HOME` is ignored.
+fn xdg_or(
+    xdg_cache_home: Option<OsString>,
+    native: impl FnOnce() -> Option<PathBuf>,
+) -> Option<PathBuf> {
+    match xdg_cache_home.map(PathBuf::from) {
+        Some(dir) if dir.is_absolute() => Some(dir.join("wullie")),
+        _ => native(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::error::Error;
@@ -200,7 +237,27 @@ mod tests {
 
     use tempfile::TempDir;
 
-    use super::{Cache, MAX_AGE, escape};
+    use super::{Cache, MAX_AGE, app_args, escape, xdg_or};
+
+    #[test]
+    fn macos_bundle_id_matches_the_website() {
+        assert_eq!(app_args().bundle_id(), "xyz.mikecoats.wullie");
+    }
+
+    #[test]
+    fn an_absolute_xdg_cache_home_wins() {
+        let xdg = std::env::temp_dir();
+        let dir = xdg_or(Some(xdg.clone().into()), || panic!("native dir used"));
+        assert_eq!(dir, Some(xdg.join("wullie")));
+    }
+
+    #[test]
+    fn an_unset_relative_or_empty_xdg_cache_home_is_ignored() {
+        let native = Path::new("native").to_path_buf();
+        for xdg in [None, Some("relative/cache".into()), Some("".into())] {
+            assert_eq!(xdg_or(xdg, || Some(native.clone())), Some(native.clone()));
+        }
+    }
 
     #[test]
     fn escape_keeps_lowercase_names_readable() {

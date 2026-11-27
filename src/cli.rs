@@ -98,8 +98,10 @@ pub const SECTIONS: &[Section] = &[
         title: "Cache",
         man_title: "FILES",
         blocks: &[Block::Paragraph(
-            "Registry lookups are cached for four hours in the user cache directory, \
-             e.g. $XDG_CACHE_HOME/wullie (~/.cache/wullie) on Linux. Use --refresh to \
+            "Registry lookups are cached for four hours in the user cache directory: \
+             $XDG_CACHE_HOME/wullie (~/.cache/wullie) on Linux, \
+             ~/Library/Caches/xyz.mikecoats.wullie on macOS unless $XDG_CACHE_HOME is set, \
+             and %LOCALAPPDATA%\\MikeCoats\\wullie\\cache on Windows. Use --refresh to \
              pick up a release published since the last lookup.",
         )],
     },

@@ -58,7 +58,7 @@ Wullie reads files it didn't write and data from the network, so most issues fal
 
 - The lookup cache.
   
-  Index bodies are written under `$XDG_CACHE_HOME/wullie/`.
+  Index bodies are written under Wullie's user cache directory, such as `~/.cache/wullie/` on Linux.
   Writing outside that directory, for example through a crafted package name, or poisoning the cache, is in scope.
 
 - The Diff Maker.
