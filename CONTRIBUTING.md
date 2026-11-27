@@ -12,27 +12,31 @@ SPDX-License-Identifier: GPL-3.0-or-later
 - [`reuse`][reuse] e.g. `pipx install reuse`
 - [`shellcheck`][shellcheck] e.g. `sudo apt install shellcheck` or `brew install shellcheck`
 - For `just deb` only, on Debian or Ubuntu: `dpkg-dev` and `lintian`, e.g. `sudo apt install dpkg-dev lintian`
+- For `just apt` only: `apt-utils`, `gpg` and the [GitHub CLI][gh], plus the apt signing key
 
 ## Common Recipes
 
-| Command            | What it does                                        |
-|--------------------|-----------------------------------------------------|
-| `just`             | List the available recipes                          |
-| `just ci`          | Run every check that CI runs                        |
-| `just fmt`         | Check formatting with `cargo fmt --check`           |
-| `just lint`        | Lint with clippy, treating warnings as errors       |
-| `just shellcheck`  | Check the packaging scripts in `pkg/`               |
-| `just test`        | Run the test suite                                  |
-| `just reuse`       | Check REUSE licensing compliance with `reuse lint`  |
-| `just package`     | Check the crate packages and builds as published    |
-| `just man`         | Generate the `wullie(1)` man page in `target/man/`  |
-| `just completions` | Generate shell completions in `target/completions/` |
-| `just tarball`     | Build a release tarball for this machine in `dist/` |
-| `just deb`         | Build a Debian package for this machine in `dist/`  |
-| `just site`        | Build the website in `target/site/`                 |
-| `just website`     | Publish the website (needs the deploy key)          |
+| Command            | What it does                                                               |
+|--------------------|----------------------------------------------------------------------------|
+| `just`             | List the available recipes                                                 |
+| `just ci`          | Run every check that CI runs                                               |
+| `just fmt`         | Check formatting with `cargo fmt --check`                                  |
+| `just lint`        | Lint with clippy, treating warnings as errors                              |
+| `just shellcheck`  | Check the packaging scripts in `pkg/`                                      |
+| `just test`        | Run the test suite                                                         |
+| `just reuse`       | Check REUSE licensing compliance with `reuse lint`                         |
+| `just package`     | Check the crate packages and builds as published                           |
+| `just man`         | Generate the `wullie(1)` man page in `target/man/`                         |
+| `just completions` | Generate shell completions in `target/completions/`                        |
+| `just tarball`     | Build a release tarball for this machine in `dist/`                        |
+| `just deb`         | Build a Debian package for this machine in `dist/`                         |
+| `just site`        | Build the website in `target/site/`                                        |
+| `just apt`         | Build the signed apt repository in `target/site/apt/`                      |
+| `just website`     | Publish the website and apt repository (needs the deploy and signing keys) |
 
 Pages in `website/` can use `@VERSION@`, which `just site` replaces with the crate's version.
+
+`just apt` downloads the current version's `.deb` files from its GitHub release, so the release has to exist first. It signs with the key in `pkg/apt/wullie.asc`, taken from `$APT_SIGNING_KEY` if that's set or from your own keyring if not, and fails if that key isn't available.
 
 ## Licensing
 
@@ -224,3 +228,4 @@ Reference-style links are preferred to inline links.
 [shellcheck]: https://www.shellcheck.net/
 [crates-io]: https://crates.io/crates/wullie
 [binstall]: https://github.com/cargo-bins/cargo-binstall
+[gh]: https://cli.github.com/

@@ -6,6 +6,7 @@ version = 1
 [[annotations]]
 path = [
     "Cargo.lock",
+    "pkg/apt/wullie.asc",
     "pkg/debian/control",
     "pkg/debian/copyright",
 ]

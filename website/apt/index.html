@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<!--
+SPDX-FileCopyrightText: 2026 Mike Coats <i.am@mikecoats.com>
+SPDX-License-Identifier: GPL-3.0-or-later
+-->
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Wullie's apt repository</title>
+    <meta name="description" content="How to add Wullie's signed apt repository on Debian and Ubuntu, so apt keeps Wullie up to date.">
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <header>
+        <span class="site-name"><a href="/">Wullie</a> <code>v@VERSION@</code></span>
+        <nav aria-label="Site">
+            <ul>
+                <li><a href="/">Home</a></li>
+                <li><a href="/install/">Install</a></li>
+                <li><a href="/usage/">Usage</a></li>
+                <li><a href="https://github.com/MikeCoats/wullie" target="_blank" rel="noopener">Source</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <main>
+        <section>
+            <h1>Wullie's apt repository</h1>
+            <p>
+                On Debian 12 or later, or Ubuntu 22.04 or later, add Wullie's
+                apt repository and apt will install Wullie and keep it up to
+                date along with the rest of your system. There are packages for
+                amd64 and arm64.
+            </p>
+        </section>
+
+        <section>
+            <h2>Adding the repository</h2>
+            <p>Add the repository with the following script:</p>
+            <pre><code>curl -fsSL https://wullie.mikecoats.xyz/apt/setup.sh | sudo sh</code></pre>
+            <details>
+                <summary>What the script does</summary>
+                <p>
+                    It downloads the key that signs the repository, and tells
+                    apt where the repository is and which key it's signed with.
+                    You can run the same steps yourself instead.
+                </p>
+@SETUP_SH@
+            </details>
+            <p>
+                With the repository added, you can install Wullie with a normal <code><span class="nowrap">sudo apt update</span> && <span class="nowrap">sudo apt install wullie</span></code>.
+                The package also installs the man page and completions for bash, zsh and fish.
+                Wullie can then be kept up to date with a regular <code>sudo apt upgrade</code>.
+            </p>
+        </section>
+
+        <section>
+            <h2>Checking the key</h2>
+            <p>The key's fingerprint is:</p>
+            <pre><code>A9A9D45A44CF7703C29361C6EAB8603C2404B883</code></pre>
+            <p>To check the one you downloaded matches:</p>
+            <pre><code>gpg --show-keys /etc/apt/keyrings/wullie.asc</code></pre>
+        </section>
+
+        <section>
+            <h2>Removing the repository</h2>
+            <pre><code>sudo apt remove wullie
+sudo rm /etc/apt/sources.list.d/wullie.sources /etc/apt/keyrings/wullie.asc</code></pre>
+        </section>
+    </main>
+
+    <footer>
+        <p>Copyright &copy; 2026 Mike Coats</p>
+        <p>
+            Wullie is free software: you can redistribute it and/or modify it
+            under the terms of the GNU General Public License as published by
+            the Free Software Foundation, either version 3 of the License, or
+            (at your option) any later version.
+        </p>
+        <p>
+            Wullie is distributed in the hope that it will be useful, but
+            WITHOUT ANY WARRANTY; without even the implied warranty of
+            MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+            <a href="https://www.gnu.org/licenses/gpl-3.0.html" target="_blank" rel="noopener">GNU General Public License</a>
+            for more details.
+        </p>
+        <ul>
+            <li><a href="https://github.com/MikeCoats/wullie" target="_blank" rel="noopener">Source</a></li>
+            <li><a href="https://github.com/MikeCoats/wullie/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">Contributing</a></li>
+            <li><a href="https://github.com/MikeCoats/wullie/blob/main/SECURITY.md" target="_blank" rel="noopener">Security</a></li>
+        </ul>
+    </footer>
+</body>
+</html>

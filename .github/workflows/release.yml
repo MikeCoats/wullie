@@ -173,4 +173,13 @@ jobs:
       - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
         with:
           tool: just@1.59.0
+      - name: Install apt-ftparchive to build the apt repository
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes apt-utils
+      # The signing key only lives in this environment, which only v* tags
+      # can use, and the build checks it matches pkg/apt/wullie.asc.
       - run: just website
+        env:
+          APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
+          GH_TOKEN: ${{ github.token }}

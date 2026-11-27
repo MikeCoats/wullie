@@ -13,7 +13,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 </head>
 <body>
     <header>
-        <a href="/">Wullie</a>
+        <span class="site-name"><a href="/">Wullie</a> <code>v@VERSION@</code></span>
         <nav aria-label="Site">
             <ul>
                 <li><a href="/">Home</a></li>
@@ -29,53 +29,36 @@ SPDX-License-Identifier: GPL-3.0-or-later
             <h1>Installing Wullie</h1>
             <p>
                 Wullie is a single program with no runtime dependencies. On
-                Debian and Ubuntu, use the Debian package. Anywhere else, use
-                Cargo if you have it, or a prebuilt tarball if you don't.
-            </p>
-            <p>
-                The commands below are for Wullie @VERSION@, the latest release.
-                Every release is on
-                <a href="https://github.com/MikeCoats/wullie/releases" target="_blank" rel="noopener">GitHub</a>.
+                Debian and Ubuntu, install it from Wullie's apt repository.
+                Anywhere else, use a prebuilt tarball, or Cargo if you already
+                have Rust.
             </p>
         </section>
 
         <section>
             <h2>Debian and Ubuntu</h2>
             <p>
-                There are packages for amd64 and arm64, which install on
-                Debian 12 or later and Ubuntu 22.04 or later. Download the one
-                for your machine, and install it with apt:
+                On Debian 12 or later, or Ubuntu 22.04 or later, on amd64 or
+                arm64, install Wullie from its apt repository. Then apt keeps
+                it up to date along with the rest of your system.
             </p>
-            <pre><code>curl -LO https://github.com/MikeCoats/wullie/releases/download/v@VERSION@/wullie_@VERSION@_amd64.deb
-sudo apt install ./wullie_@VERSION@_amd64.deb</code></pre>
+            <pre><code>curl -fsSL https://wullie.mikecoats.xyz/apt/setup.sh | sudo sh
+sudo apt update &amp;&amp; sudo apt install wullie</code></pre>
             <p>
-                On arm64, use <code>wullie_@VERSION@_arm64.deb</code> instead. The
-                package also installs the man page and completions for bash, zsh
-                and fish.
-            </p>
-            <!-- The signed apt repository goes here once it exists. -->
-        </section>
-
-        <section>
-            <h2>With Cargo</h2>
-            <p>
-                <a href="https://github.com/cargo-bins/cargo-binstall" target="_blank" rel="noopener">cargo-binstall</a>
-                downloads the prebuilt binary for your platform:
-            </p>
-            <pre><code>cargo binstall wullie</code></pre>
-            <p>
-                Or build it from source, which needs Rust 1.100 or later:
-            </p>
-            <pre><code>cargo install wullie</code></pre>
-            <p>
-                Either way, Wullie is installed in <code>~/.cargo/bin</code>,
-                without the man page or completions. They're in the tarballs
-                below.
+                The man page and completions for bash, zsh and fish come with
+                it. See the page about <a href="/apt/">Wullie's apt repository</a>
+                to find out what the setup script does, how to check the key,
+                and how to remove Wullie and the repository.
             </p>
         </section>
 
         <section>
             <h2>Prebuilt tarballs</h2>
+            <p>
+                Every release is on
+                <a href="https://github.com/MikeCoats/wullie/releases" target="_blank" rel="noopener">GitHub</a>.
+                The commands below are for Wullie @VERSION@, the latest release.
+            </p>
             <table>
                 <thead>
                     <tr>
@@ -100,10 +83,12 @@ sudo apt install ./wullie_@VERSION@_amd64.deb</code></pre>
                         <td>macOS on Apple Silicon</td>
                         <td><a href="https://github.com/MikeCoats/wullie/releases/download/v@VERSION@/wullie-@VERSION@-aarch64-apple-darwin.tar.gz" download><code>aarch64-apple-darwin</code></a></td>
                     </tr>
+                    <!-- Not built while the x86_64-apple-darwin row is disabled in release.yml.
                     <tr>
                         <td>macOS on Intel</td>
                         <td><a href="https://github.com/MikeCoats/wullie/releases/download/v@VERSION@/wullie-@VERSION@-x86_64-apple-darwin.tar.gz" download><code>x86_64-apple-darwin</code></a></td>
                     </tr>
+                    -->
                     <tr>
                         <td>Windows on x86-64</td>
                         <td><a href="https://github.com/MikeCoats/wullie/releases/download/v@VERSION@/wullie-@VERSION@-x86_64-pc-windows-msvc.tar.gz" download><code>x86_64-pc-windows-msvc</code></a></td>
@@ -139,26 +124,11 @@ install -m 755 wullie-@VERSION@-x86_64-unknown-linux-gnu/wullie ~/.local/bin/</c
         </section>
 
         <section>
-            <h2>Checking a download</h2>
-            <p>
-                Every download has a matching <code>.sha256</code> file
-                alongside it on the release. Download both into the same folder,
-                then check one against the other:
-            </p>
-            <pre><code>sha256sum --check wullie-@VERSION@-x86_64-unknown-linux-gnu.tar.gz.sha256</code></pre>
-            <p>
-                On macOS, use <code>shasum -a 256 --check</code> instead. On
-                Windows, compare the output of
-                <code>Get-FileHash wullie-@VERSION@-x86_64-pc-windows-msvc.tar.gz</code>
-                with the hash in the <code>.sha256</code> file.
-            </p>
-        </section>
-
-        <section>
             <h2>Shell completions and the man page</h2>
             <p>
-                The Debian package installs these for you. From a tarball, copy
-                the ones you want from its <code>completions</code> folder:
+                The apt repository's package installs these for you. From a
+                tarball, copy the ones you want from its
+                <code>completions</code> folder:
             </p>
             <table>
                 <thead>
@@ -202,14 +172,31 @@ install -m 644 wullie-@VERSION@-x86_64-unknown-linux-gnu/wullie.1 ~/.local/share
         </section>
 
         <section>
+            <h2>With Cargo</h2>
+            <p>
+                <a href="https://github.com/cargo-bins/cargo-binstall" target="_blank" rel="noopener">cargo-binstall</a>
+                downloads the prebuilt binary for your platform:
+            </p>
+            <pre><code>cargo binstall wullie</code></pre>
+            <p>
+                Or build it from source, which needs Rust 1.100 or later:
+            </p>
+            <pre><code>cargo install wullie</code></pre>
+            <p>
+                Either way, Wullie is installed in <code>~/.cargo/bin</code>,
+                without the man page or completions. They're in the tarballs
+                above.
+            </p>
+        </section>
+
+        <section>
             <h2>Upgrading</h2>
             <p>
-                Wullie doesn't update itself. To upgrade, install the new
-                release the same way you installed the old one: download and
-                <code>apt install</code> the new Debian package, run
+                From the apt repository, <code>sudo apt upgrade</code> installs
+                each new release. Otherwise, Wullie doesn't update itself:
+                replace the binary with the one from a new tarball, or run
                 <code>cargo binstall wullie</code> or
-                <code>cargo install wullie</code> again, or replace the binary
-                with the one from a new tarball.
+                <code>cargo install wullie</code> again.
             </p>
             <p>
                 <code>wullie --version</code> shows which version you have.

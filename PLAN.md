@@ -27,7 +27,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
   - [ ] docker-compose.yml
 - [ ] Bugs and Features
   - [ ] IPv6 Happy Eyeballs
-- [ ] Package
+- [x] Package
   - [x] As a tar.gz
     - [x] Linux x64
     - [x] Linux ARM
@@ -49,11 +49,11 @@ SPDX-License-Identifier: GPL-3.0-or-later
   - [x] `--help`
   - [x] Man page
   - [x] Shell completions
-  - [ ] https://wullie.mikecoats.xyz/
+  - [x] https://wullie.mikecoats.xyz/
     - [x] Webpage
       - [x] Home
       - [x] Install
       - [x] Usage
-    - [ ] Signed apt repository
-      - [ ] /apt/ setup page
+    - [x] Signed apt repository
+      - [x] /apt/ setup page
   - [ ] Blog post & socials

@@ -13,7 +13,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 </head>
 <body>
     <header>
-        <a href="/">Wullie</a>
+        <span class="site-name"><a href="/">Wullie</a> <code>v@VERSION@</code></span>
         <nav aria-label="Site">
             <ul>
                 <li><a href="/" aria-current="page">Home</a></li>
@@ -145,23 +145,25 @@ SPDX-License-Identifier: GPL-3.0-or-later
             <p>
                 Dependencies on private registries, local paths, git
                 repositories and workspaces are left alone. See
-                <a href="/usage/#what-gets-checked">what gets checked</a> for
-                the details.
-            </p>
-            <p>
-                Support for GitHub Actions workflows and Docker Compose files is
-                being looked into.
+                <a href="/usage/#what-gets-checked">what gets checked</a> on
+                our usage page for the details.
             </p>
         </section>
 
         <section>
             <h2>Install</h2>
-            <p>With <a href="https://github.com/cargo-bins/cargo-binstall" target="_blank" rel="noopener">cargo-binstall</a>:</p>
-            <pre><code>cargo binstall wullie</code></pre>
             <p>
-                There are also Debian packages, and prebuilt binaries for Linux,
-                macOS and Windows. See <a href="/install/">Installing Wullie</a>
-                for every option.
+                On Debian and Ubuntu, add Wullie's apt repository and install our package:
+            </p>
+            <pre><code>curl -fsSL https://wullie.mikecoats.xyz/apt/setup.sh | sudo sh
+sudo apt update &amp;&amp; sudo apt install wullie</code></pre>
+            <p>
+                To see what the script does before you run it, see the page about <a href="/apt/">Wullie's apt repository</a>.
+            </p>
+            <p>
+                There are also prebuilt binaries for Linux, macOS and Windows,
+                and Wullie installs with Cargo too. See
+                <a href="/install/">Installing Wullie</a> for every option.
             </p>
         </section>
 

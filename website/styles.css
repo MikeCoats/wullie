@@ -105,11 +105,22 @@ header {
     border-bottom: 1px solid var(--border);
 }
 
-header > a {
+.site-name a {
     color: var(--text);
     font-size: 1.25rem;
     font-weight: 700;
     text-decoration: none;
+}
+
+/* The version beside it, which isn't part of the link. Its background fits
+   the digits rather than the font's room for descenders, which left it
+   hanging below the name. */
+.site-name code {
+    display: inline-block;
+    margin-left: 0.25rem;
+    padding: 0.15em 0.35em;
+    line-height: 1;
+    color: var(--muted);
 }
 
 nav ul {

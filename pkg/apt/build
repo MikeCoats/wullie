@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 Mike Coats <i.am@mikecoats.com>
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Builds the signed apt repository in target/site/apt/ from this version's
+# Debian packages in dist/. `just apt` downloads those from the release and
+# runs this.
+#
+# It signs with the key in pkg/apt/wullie.asc: from $APT_SIGNING_KEY, an
+# armoured secret key, if that's set, or else from your own keyring.
+#
+# Usage: pkg/apt/build
+
+set -euo pipefail
+
+if [[ ${#} -ne 0 ]]; then
+    echo "usage: ${0}" >&2
+    exit 2
+fi
+
+here="$(cd "$(dirname "${0}")" && pwd)"
+cd "${here}/../.."
+
+version=$(cargo pkgid | sed 's/.*[#@]//')
+deb_version="${version/-/\~}"
+out="target/site/apt"
+suite="stable"
+
+shopt -s nullglob
+debs=(dist/wullie_"${deb_version}"_*.deb)
+shopt -u nullglob
+if [[ ${#debs[@]} -eq 0 ]]; then
+    echo "error: no dist/wullie_${deb_version}_*.deb; run \`just apt\` to download them" >&2
+    exit 1
+fi
+
+work=$(mktemp -d)
+trap 'rm -rf "${work}"' EXIT
+
+# Sign only with the published key, so a wrong secret fails here rather than
+# on every user's machine.
+fingerprint=$(gpg --show-keys --with-colons "${here}/wullie.asc" | awk -F: '$1 == "fpr" { print $10; exit }')
+if [[ -n "${APT_SIGNING_KEY:-}" ]]; then
+    export GNUPGHOME="${work}/gnupg"
+    install -d -m 700 "${GNUPGHOME}"
+    printf '%s\n' "${APT_SIGNING_KEY}" | gpg --batch --quiet --import
+fi
+
+# Only clear what this builds: website/apt/ has the setup page.
+rm -rf "${out}/dists" "${out}/pool" "${out}/wullie.asc"
+install -d "${out}/pool/main/w/wullie"
+cp "${debs[@]}" "${out}/pool/main/w/wullie/"
+cp "${here}/wullie.asc" "${out}/wullie.asc"
+
+# apt-ftparchive writes paths relative to where it runs, so run it from
+# the repository's top folder. MD5 and SHA-1 are left out: apt hasn't
+# trusted them for years.
+archs=()
+for deb in "${debs[@]}"; do
+    archs+=("$(dpkg-deb --field "${deb}" Architecture)")
+done
+(
+    cd "${out}"
+    for arch in "${archs[@]}"; do
+        dir="dists/${suite}/main/binary-${arch}"
+        install -d "${dir}"
+        apt-ftparchive --arch "${arch}" -o APT::FTPArchive::MD5=false -o APT::FTPArchive::SHA1=false \
+            packages pool > "${dir}/Packages"
+        gzip -9n < "${dir}/Packages" > "${dir}/Packages.gz"
+    done
+    apt-ftparchive \
+        -o APT::FTPArchive::MD5=false -o APT::FTPArchive::SHA1=false \
+        -o APT::FTPArchive::Release::Origin=Wullie \
+        -o APT::FTPArchive::Release::Label=Wullie \
+        -o APT::FTPArchive::Release::Suite="${suite}" \
+        -o APT::FTPArchive::Release::Codename="${suite}" \
+        -o APT::FTPArchive::Release::Architectures="${archs[*]}" \
+        -o APT::FTPArchive::Release::Components=main \
+        -o APT::FTPArchive::Release::Description="Wullie, yer local groundskeeper" \
+        release "dists/${suite}" > "${work}/Release"
+    gpg --batch --yes --local-user "${fingerprint}!" --clearsign \
+        --output "dists/${suite}/InRelease" "${work}/Release"
+)
+
+gpg --dearmor < "${here}/wullie.asc" > "${work}/wullie.gpg"
+gpgv --quiet --keyring "${work}/wullie.gpg" "${out}/dists/${suite}/InRelease"
+echo "${out}/"
