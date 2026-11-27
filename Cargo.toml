@@ -3,7 +3,7 @@
 
 [package]
 name = "wullie"
-version = "0.5.7"
+version = "0.5.8"
 authors = ["Mike Coats <i.am@mikecoats.com>"]
 edition = "2024"
 rust-version = "1.100"
