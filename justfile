@@ -51,6 +51,7 @@ deb target=`rustc -vV | sed -n 's/^host: //p'`: (tarball target)
 # Build the website in target/site/, with this version filled in
 site:
     rm -rf target/site
+    mkdir -p target
     cp -r website target/site
     find target/site -name '*.html' -exec sed -i "s/@VERSION@/$(cargo pkgid | sed 's/.*[#@]//')/g" {} +
 
