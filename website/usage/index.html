@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<!--
+SPDX-FileCopyrightText: 2026 Mike Coats <i.am@mikecoats.com>
+SPDX-License-Identifier: GPL-3.0-or-later
+-->
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Using Wullie</title>
+    <meta name="description" content="How to run Wullie, apply its diff, and use it in CI.">
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <header>
+        <a href="/">Wullie</a>
+        <nav aria-label="Site">
+            <ul>
+                <li><a href="/">Home</a></li>
+                <li><a href="/install/">Install</a></li>
+                <li><a href="/usage/" aria-current="page">Usage</a></li>
+                <li><a href="https://github.com/MikeCoats/wullie" target="_blank" rel="noopener">Source</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <main>
+        <section>
+            <h1>Using Wullie</h1>
+            <p>
+                Wullie never changes your files itself. It prints a patch, and
+                you decide whether to apply it.
+            </p>
+        </section>
+
+        <section>
+            <h2>Running Wullie</h2>
+            <p>Run <code>wullie</code> with the folder to search, or with no folder to search the current one:</p>
+            <pre><code>wullie ~/code/my-project</code></pre>
+            <p>
+                Wullie searches that folder, and every folder inside it, for
+                <code>Cargo.toml</code>, <code>pyproject.toml</code> and
+                <code>package.json</code> files. It looks up every dependency
+                they list, and prints one unified diff that pins each
+                out-of-date dependency to its latest release. The paths in the
+                diff are relative to the folder you searched.
+            </p>
+            <p>
+                The diff goes to standard output, and any warnings go to
+                standard error, so you can redirect the diff to a file:
+            </p>
+            <pre><code>wullie ~/code &gt; deps.patch</code></pre>
+        </section>
+
+        <section>
+            <h2>Applying the changes</h2>
+            <p>From the root of a git repository, pipe the diff straight into <code>git apply</code>:</p>
+            <pre><code>wullie | git apply</code></pre>
+            <p>
+                Outside git, <code>patch -p1 &lt; deps.patch</code> does the
+                same job. Either way, review the changes with
+                <code>git diff</code> before you commit them.
+            </p>
+            <p>
+                Wullie only changes manifests. It doesn't install packages or
+                touch lock files, so afterwards regenerate and commit
+                <code>Cargo.lock</code>, <code>uv.lock</code>,
+                <code>package-lock.json</code> or the equivalent, then run your
+                tests.
+            </p>
+            <p>
+                Wullie pins to the newest release even when that's a new major
+                version, which may have breaking changes. If you're not ready
+                for one, edit that line before you apply the patch.
+            </p>
+        </section>
+
+        <section id="what-gets-checked">
+            <h2>What gets checked</h2>
+            <p>
+                A dependency is out of date when the oldest release its
+                requirement allows is older than the latest release. So
+                <code>^1.2</code> is out of date as soon as 1.3 is out, even
+                though it would allow 1.3. A requirement with no version at all,
+                or one like <code>*</code> or <code>latest</code>, is always out
+                of date.
+            </p>
+            <p>
+                Every kind of dependency is checked: normal, development, build
+                and optional dependencies alike. Yanked releases, deprecated npm
+                versions and pre-releases are never suggested, unless a
+                requirement already asks for a pre-release.
+            </p>
+            <table>
+                <thead>
+                    <tr>
+                        <th scope="col">Ecosystem</th>
+                        <th scope="col" class="nowrap">Pinned as</th>
+                        <th scope="col">Left alone</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Rust, <span class="nowrap">from <a href="https://crates.io/" target="_blank" rel="noopener">crates.io</a></span></td>
+                        <td class="nowrap"><code>=1.2.3</code></td>
+                        <td>
+                            Dependencies with <code class="nowrap">registry</code>,
+                            <code class="nowrap">registry-index</code>, <code class="nowrap">path</code> or
+                            <code class="nowrap">git</code>, or with <code class="nowrap">workspace = true</code>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>Python, <span class="nowrap">from <a href="https://pypi.org/" target="_blank" rel="noopener">PyPI</a></span></td>
+                        <td class="nowrap"><code>==1.2.3</code></td>
+                        <td>
+                            Direct references, such as
+                            <code class="nowrap">name @ https://…</code>. Extras and
+                            environment markers are kept.
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>JavaScript, <span class="nowrap">from <a href="https://www.npmjs.com/" target="_blank" rel="noopener">npm</a></span></td>
+                        <td class="nowrap"><code>1.2.3</code></td>
+                        <td>
+                            Local paths, git repositories, URLs and workspaces.
+                            <code class="nowrap">npm:</code> aliases are checked under the
+                            package they point to.
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+            <p>
+                If a manifest can't be read, Wullie warns about it and skips the
+                whole manifest rather than giving you a partial answer.
+            </p>
+        </section>
+
+        <section>
+            <h2>What gets skipped</h2>
+            <p>
+                Wullie respects <code>.gitignore</code> and other standard
+                ignore files, and skips hidden folders. It also skips build,
+                cache and dependency folders, in every project, whichever
+                ecosystem they belong to:
+            </p>
+            <ul>
+                <li><code>target/</code></li>
+                <li><code>__pycache__/</code>, <code>__pypackages__/</code> and <code>site-packages/</code></li>
+                <li><code>node_modules/</code> and <code>bower_components/</code></li>
+            </ul>
+            <p>
+                Symbolic links are skipped too, whether they point to a manifest
+                or a folder, so Wullie never leaves the folder you asked it to
+                search.
+            </p>
+        </section>
+
+        <section>
+            <h2>Caching and <code>--refresh</code></h2>
+            <p>
+                Wullie caches every registry lookup for four hours, so running
+                it again, or over many projects that share dependencies, doesn't
+                repeat thousands of requests. The cache is in your platform's
+                usual place for caches:
+            </p>
+            <ul>
+                <li>
+                    Linux: <code>~/.cache/wullie</code>, or
+                    <code>$XDG_CACHE_HOME/wullie</code> if you've set that
+                </li>
+                <li>
+                    macOS: <code>~/Library/Caches/xyz.mikecoats.wullie</code>,
+                    or <code>$XDG_CACHE_HOME/wullie</code> if you've set that
+                </li>
+                <li>
+                    Windows: <code>%LOCALAPPDATA%\MikeCoats\wullie\cache</code>,
+                    usually
+                    <code>C:\Users\&lt;username&gt;\AppData\Local\MikeCoats\wullie\cache</code>
+                </li>
+            </ul>
+            <p>
+                If a release came out since your last run, such as an urgent
+                security fix, ignore the cache and look everything up again:
+            </p>
+            <pre><code>wullie --refresh</code></pre>
+        </section>
+
+        <section>
+            <h2>Exit codes</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th scope="col">Exit code</th>
+                        <th scope="col">Meaning</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>0</code></td>
+                        <td>Every manifest was checked, regardless of whether
+                            any updates were found.
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><code>2</code></td>
+                        <td>
+                            Something went wrong, or part of the tree couldn't
+                            be checked, so the diff may be incomplete. The
+                            warnings say what.
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section>
+            <h2>Using with CI</h2>
+            <p>
+                For Wullie, finding updates isn't an error, so a CI job that
+                should fail on out-of-date dependencies needs to actually check
+                whether the diff is empty:
+            </p>
+            <pre><code>patch=$(wullie) || exit 2
+if [ -n "$patch" ]; then
+    printf '%s\n' "$patch"
+    exit 1
+fi</code></pre>
+            <p>
+                The job will then fail if any dependencies are out of date, and
+                the log will show the diff that would fix the CI run.
+            </p>
+        </section>
+    </main>
+
+    <footer>
+        <p>Copyright &copy; 2026 Mike Coats</p>
+        <p>
+            Wullie is free software: you can redistribute it and/or modify it
+            under the terms of the GNU General Public License as published by
+            the Free Software Foundation, either version 3 of the License, or
+            (at your option) any later version.
+        </p>
+        <p>
+            Wullie is distributed in the hope that it will be useful, but
+            WITHOUT ANY WARRANTY; without even the implied warranty of
+            MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+            <a href="https://www.gnu.org/licenses/gpl-3.0.html" target="_blank" rel="noopener">GNU General Public License</a>
+            for more details.
+        </p>
+        <ul>
+            <li><a href="https://github.com/MikeCoats/wullie" target="_blank" rel="noopener">Source</a></li>
+            <li><a href="https://github.com/MikeCoats/wullie/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">Contributing</a></li>
+            <li><a href="https://github.com/MikeCoats/wullie/blob/main/SECURITY.md" target="_blank" rel="noopener">Security</a></li>
+        </ul>
+    </footer>
+</body>
+</html>

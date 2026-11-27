@@ -50,10 +50,10 @@ SPDX-License-Identifier: GPL-3.0-or-later
   - [x] Man page
   - [x] Shell completions
   - [ ] https://wullie.mikecoats.xyz/
-    - [ ] Webpage
-      - [ ] Home
-      - [ ] Install
-      - [ ] Usage
+    - [x] Webpage
+      - [x] Home
+      - [x] Install
+      - [x] Usage
     - [ ] Signed apt repository
       - [ ] /apt/ setup page
   - [ ] Blog post & socials

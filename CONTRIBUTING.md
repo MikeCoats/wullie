@@ -29,7 +29,10 @@ SPDX-License-Identifier: GPL-3.0-or-later
 | `just completions` | Generate shell completions in `target/completions/` |
 | `just tarball`     | Build a release tarball for this machine in `dist/` |
 | `just deb`         | Build a Debian package for this machine in `dist/`  |
-| `just website`     | Publish `website/` (needs the deploy key)           |
+| `just site`        | Build the website in `target/site/`                 |
+| `just website`     | Publish the website (needs the deploy key)          |
+
+Pages in `website/` can use `@VERSION@`, which `just site` replaces with the crate's version.
 
 ## Licensing
 

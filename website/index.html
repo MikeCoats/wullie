@@ -1,10 +1,209 @@
 <!DOCTYPE html>
+<!--
+SPDX-FileCopyrightText: 2026 Mike Coats <i.am@mikecoats.com>
+SPDX-License-Identifier: GPL-3.0-or-later
+-->
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Title</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Wullie, yer local groundskeeper</title>
+    <meta name="description" content="Wullie finds out-of-date dependencies in Rust, Python and JavaScript projects and prints a diff that pins them to the latest releases.">
+    <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
+    <header>
+        <a href="/">Wullie</a>
+        <nav aria-label="Site">
+            <ul>
+                <li><a href="/" aria-current="page">Home</a></li>
+                <li><a href="/install/">Install</a></li>
+                <li><a href="/usage/">Usage</a></li>
+                <li><a href="https://github.com/MikeCoats/wullie" target="_blank" rel="noopener">Source</a></li>
+            </ul>
+        </nav>
+    </header>
 
+    <main>
+        <section>
+            <h1>Wullie, yer local groundskeeper</h1>
+            <p>
+                <code>wullie</code> is an opinionated tool for managing dependency
+                requirements in Rust, Python, and JavaScript projects.
+            </p>
+            <p>
+                Wullie finds out-of-date dependencies in Rust, Python and
+                JavaScript projects, and prints a patch that pins each one to
+                its latest release.
+            </p>
+            <p>
+                It never changes your files itself. You read the patch, and
+                apply it when you're happy with it.
+            </p>
+        </section>
+
+        <section>
+            <h2>Why pin exact versions?</h2>
+            <p>
+                Ranges like <code>^18.2.0</code>, <code>~=0.24</code> and
+                <code>&gt;=0.100</code> are handy while you're developing, but
+                they leave a gap in live, deployed projects. In theory, Cargo,
+                pip and npm install the newest release a range allows, picking
+                up security fixes along the way. In practice, those fixes often
+                don't reach production in good time.
+            </p>
+            <p>
+                Lock files close part of that gap, but they hide the versions
+                you're really running behind separate files and commands, so
+                it's easy to install an old, insecure one by accident.
+            </p>
+            <p>
+                Wullie takes a different approach. Every requirement names the
+                exact version you run, and updating is a deliberate step that
+                you take, review and commit.
+            </p>
+        </section>
+
+        <section>
+            <h2>What it does</h2>
+            <p>
+                Run <code>wullie</code> in your project, and it searches every
+                folder for manifests, looks up each dependency's latest release,
+                and prints the changes as a unified diff:
+            </p>
+            <pre class="diff"><code>--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -4,5 +4,5 @@
+ edition = "2024"
+ 
+ [dependencies]
+<span class="diff-del">-serde = "1.0"</span>
+<span class="diff-del">-tokio = { version = "1", features = ["full"] }</span>
+<span class="diff-add">+serde = "=1.0.229"</span>
+<span class="diff-add">+tokio = { version = "=1.54.1", features = ["full"] }</span>
+--- a/api/pyproject.toml
++++ b/api/pyproject.toml
+@@ -2,6 +2,6 @@
+ name = "api"
+ version = "0.1.0"
+ dependencies = [
+<span class="diff-del">-    "fastapi&gt;=0.100",</span>
+<span class="diff-del">-    "httpx~=0.24",</span>
+<span class="diff-add">+    "fastapi==0.165.0",</span>
+<span class="diff-add">+    "httpx==0.29.0",</span>
+ ]
+--- a/web/package.json
++++ b/web/package.json
+@@ -1,7 +1,7 @@
+ {
+   "name": "web",
+   "dependencies": {
+<span class="diff-del">-    "react": "^18.2.0",</span>
+<span class="diff-del">-    "vite": "~5.0.0"</span>
+<span class="diff-add">+    "react": "19.3.1",</span>
+<span class="diff-add">+    "vite": "8.4.0"</span>
+   }
+ }</code></pre>
+            <p>
+                When you're happy with the changes, apply them with
+                <code>wullie | git apply</code>, or with <code>patch</code>.
+                Then regenerate and commit your lock files,
+                <code>Cargo.lock</code>, <code>uv.lock</code>,
+                <code>package-lock.json</code> or the equivalent, as Wullie
+                only changes the manifests.
+            </p>
+        </section>
+
+        <section>
+            <h2>Supported ecosystems</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th scope="col">Ecosystem</th>
+                        <th scope="col">Manifest</th>
+                        <th scope="col">Registry</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Rust</td>
+                        <td><code>Cargo.toml</code></td>
+                        <td>crates.io</td>
+                    </tr>
+                    <tr>
+                        <td>Python</td>
+                        <td><code>pyproject.toml</code></td>
+                        <td>PyPI</td>
+                    </tr>
+                    <tr>
+                        <td>JavaScript</td>
+                        <td><code>package.json</code></td>
+                        <td>npm</td>
+                    </tr>
+                </tbody>
+            </table>
+            <p>
+                Dependencies on private registries, local paths, git
+                repositories and workspaces are left alone. See
+                <a href="/usage/#what-gets-checked">what gets checked</a> for
+                the details.
+            </p>
+            <p>
+                Support for GitHub Actions workflows and Docker Compose files is
+                being looked into.
+            </p>
+        </section>
+
+        <section>
+            <h2>Install</h2>
+            <p>With <a href="https://github.com/cargo-bins/cargo-binstall" target="_blank" rel="noopener">cargo-binstall</a>:</p>
+            <pre><code>cargo binstall wullie</code></pre>
+            <p>
+                There are also Debian packages, and prebuilt binaries for Linux,
+                macOS and Windows. See <a href="/install/">Installing Wullie</a>
+                for every option.
+            </p>
+        </section>
+
+        <section>
+            <h2>Source and licence</h2>
+            <p>
+                Wullie's source is on
+                <a href="https://github.com/MikeCoats/wullie" target="_blank" rel="noopener">GitHub</a>. It's
+                free software, licensed under the GNU General Public License,
+                version 3 or later.
+            </p>
+            <p>
+                Bug reports and pull requests are welcome: the
+                <a href="https://github.com/MikeCoats/wullie/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">contributing guide</a>
+                covers building, testing and linting. Please report security
+                vulnerabilities privately, as the
+                <a href="https://github.com/MikeCoats/wullie/blob/main/SECURITY.md" target="_blank" rel="noopener">security policy</a>
+                describes, rather than in a public issue.
+            </p>
+        </section>
+    </main>
+
+    <footer>
+        <p>Copyright &copy; 2026 Mike Coats</p>
+        <p>
+            Wullie is free software: you can redistribute it and/or modify it
+            under the terms of the GNU General Public License as published by
+            the Free Software Foundation, either version 3 of the License, or
+            (at your option) any later version.
+        </p>
+        <p>
+            Wullie is distributed in the hope that it will be useful, but
+            WITHOUT ANY WARRANTY; without even the implied warranty of
+            MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+            <a href="https://www.gnu.org/licenses/gpl-3.0.html" target="_blank" rel="noopener">GNU General Public License</a>
+            for more details.
+        </p>
+        <ul>
+            <li><a href="https://github.com/MikeCoats/wullie" target="_blank" rel="noopener">Source</a></li>
+            <li><a href="https://github.com/MikeCoats/wullie/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">Contributing</a></li>
+            <li><a href="https://github.com/MikeCoats/wullie/blob/main/SECURITY.md" target="_blank" rel="noopener">Security</a></li>
+        </ul>
+    </footer>
 </body>
 </html>

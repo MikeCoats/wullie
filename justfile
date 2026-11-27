@@ -48,6 +48,12 @@ tarball target=`rustc -vV | sed -n 's/^host: //p'`:
 deb target=`rustc -vV | sed -n 's/^host: //p'`: (tarball target)
     bash pkg/debian/build {{target}}
 
-# Publish website/ to wullie.mikecoats.xyz, using the deploy key
-website:
-    rsync -rlpt --delete --chmod=D755,F644 -e 'ssh -i ~/.ssh/wullie.website.id_ed25519' website/ wullie@wullie.mikecoats.xyz:
+# Build the website in target/site/, with this version filled in
+site:
+    rm -rf target/site
+    cp -r website target/site
+    find target/site -name '*.html' -exec sed -i "s/@VERSION@/$(cargo pkgid | sed 's/.*[#@]//')/g" {} +
+
+# Publish the website to wullie.mikecoats.xyz, using the deploy key
+website: site
+    rsync -rlpt --delete --chmod=D755,F644 -e 'ssh -i ~/.ssh/wullie.website.id_ed25519' target/site/ wullie@wullie.mikecoats.xyz:

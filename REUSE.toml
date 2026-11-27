@@ -11,3 +11,13 @@ path = [
 ]
 SPDX-FileCopyrightText = "2026 Mike Coats <i.am@mikecoats.com>"
 SPDX-License-Identifier = "GPL-3.0-or-later"
+
+# Atkinson Hyperlegible Next and Mono, from the Braille Institute.
+[[annotations]]
+path = [
+    "website/fonts/atkinson-hyperlegible-next.woff2",
+    "website/fonts/atkinson-hyperlegible-next-italic.woff2",
+    "website/fonts/atkinson-hyperlegible-mono.woff2"
+]
+SPDX-FileCopyrightText = "Copyright 2020, Braille Institute of America, Inc. (https://www.brailleinstitute.org/)"
+SPDX-License-Identifier = "OFL-1.1"

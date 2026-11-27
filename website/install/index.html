@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<!--
+SPDX-FileCopyrightText: 2026 Mike Coats <i.am@mikecoats.com>
+SPDX-License-Identifier: GPL-3.0-or-later
+-->
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Installing Wullie</title>
+    <meta name="description" content="How to install Wullie on Debian, Ubuntu, macOS and Windows, with Cargo, packages or prebuilt tarballs.">
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <header>
+        <a href="/">Wullie</a>
+        <nav aria-label="Site">
+            <ul>
+                <li><a href="/">Home</a></li>
+                <li><a href="/install/" aria-current="page">Install</a></li>
+                <li><a href="/usage/">Usage</a></li>
+                <li><a href="https://github.com/MikeCoats/wullie" target="_blank" rel="noopener">Source</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <main>
+        <section>
+            <h1>Installing Wullie</h1>
+            <p>
+                Wullie is a single program with no runtime dependencies. On
+                Debian and Ubuntu, use the Debian package. Anywhere else, use
+                Cargo if you have it, or a prebuilt tarball if you don't.
+            </p>
+            <p>
+                The commands below are for Wullie @VERSION@, the latest release.
+                Every release is on
+                <a href="https://github.com/MikeCoats/wullie/releases" target="_blank" rel="noopener">GitHub</a>.
+            </p>
+        </section>
+
+        <section>
+            <h2>Debian and Ubuntu</h2>
+            <p>
+                There are packages for amd64 and arm64, which install on
+                Debian 12 or later and Ubuntu 22.04 or later. Download the one
+                for your machine, and install it with apt:
+            </p>
+            <pre><code>curl -LO https://github.com/MikeCoats/wullie/releases/download/v@VERSION@/wullie_@VERSION@_amd64.deb
+sudo apt install ./wullie_@VERSION@_amd64.deb</code></pre>
+            <p>
+                On arm64, use <code>wullie_@VERSION@_arm64.deb</code> instead. The
+                package also installs the man page and completions for bash, zsh
+                and fish.
+            </p>
+            <!-- The signed apt repository goes here once it exists. -->
+        </section>
+
+        <section>
+            <h2>With Cargo</h2>
+            <p>
+                <a href="https://github.com/cargo-bins/cargo-binstall" target="_blank" rel="noopener">cargo-binstall</a>
+                downloads the prebuilt binary for your platform:
+            </p>
+            <pre><code>cargo binstall wullie</code></pre>
+            <p>
+                Or build it from source, which needs Rust 1.100 or later:
+            </p>
+            <pre><code>cargo install wullie</code></pre>
+            <p>
+                Either way, Wullie is installed in <code>~/.cargo/bin</code>,
+                without the man page or completions. They're in the tarballs
+                below.
+            </p>
+        </section>
+
+        <section>
+            <h2>Prebuilt tarballs</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th scope="col">Platform</th>
+                        <th scope="col">Download</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Linux on x86-64</td>
+                        <td><a href="https://github.com/MikeCoats/wullie/releases/download/v@VERSION@/wullie-@VERSION@-x86_64-unknown-linux-gnu.tar.gz" download><code>x86_64-unknown-linux-gnu</code></a></td>
+                    </tr>
+                    <tr>
+                        <td>Linux on x86-64, statically linked</td>
+                        <td><a href="https://github.com/MikeCoats/wullie/releases/download/v@VERSION@/wullie-@VERSION@-x86_64-unknown-linux-musl.tar.gz" download><code>x86_64-unknown-linux-musl</code></a></td>
+                    </tr>
+                    <tr>
+                        <td>Linux on ARM64</td>
+                        <td><a href="https://github.com/MikeCoats/wullie/releases/download/v@VERSION@/wullie-@VERSION@-aarch64-unknown-linux-gnu.tar.gz" download><code>aarch64-unknown-linux-gnu</code></a></td>
+                    </tr>
+                    <tr>
+                        <td>macOS on Apple Silicon</td>
+                        <td><a href="https://github.com/MikeCoats/wullie/releases/download/v@VERSION@/wullie-@VERSION@-aarch64-apple-darwin.tar.gz" download><code>aarch64-apple-darwin</code></a></td>
+                    </tr>
+                    <tr>
+                        <td>macOS on Intel</td>
+                        <td><a href="https://github.com/MikeCoats/wullie/releases/download/v@VERSION@/wullie-@VERSION@-x86_64-apple-darwin.tar.gz" download><code>x86_64-apple-darwin</code></a></td>
+                    </tr>
+                    <tr>
+                        <td>Windows on x86-64</td>
+                        <td><a href="https://github.com/MikeCoats/wullie/releases/download/v@VERSION@/wullie-@VERSION@-x86_64-pc-windows-msvc.tar.gz" download><code>x86_64-pc-windows-msvc</code></a></td>
+                    </tr>
+                </tbody>
+            </table>
+            <p>
+                The Linux <code>gnu</code> builds need glibc 2.34 or later. The
+                <code>musl</code> build has no such requirement, and runs on any
+                x86-64 Linux, including Alpine.
+            </p>
+            <p>
+                Each tarball has the <code>wullie</code> binary
+                (<code>wullie.exe</code> on Windows), the
+                <code>wullie.1</code> man page, shell completions, the README
+                and the licence. To install the binary for just yourself on
+                Linux or macOS:
+            </p>
+            <pre><code>tar xzf wullie-@VERSION@-x86_64-unknown-linux-gnu.tar.gz
+mkdir -p ~/.local/bin
+install -m 755 wullie-@VERSION@-x86_64-unknown-linux-gnu/wullie ~/.local/bin/</code></pre>
+            <p>
+                Make sure <code>~/.local/bin</code> is on your
+                <code>PATH</code>. Most Linux distributions add it for you, but
+                macOS doesn't.
+            </p>
+            <p>
+                On Windows 10 and later, <code>tar</code> is built in, so the
+                same <code>tar xzf</code> command works in PowerShell. Put
+                <code>wullie.exe</code> in a folder on your
+                <code>PATH</code>.
+            </p>
+        </section>
+
+        <section>
+            <h2>Checking a download</h2>
+            <p>
+                Every download has a matching <code>.sha256</code> file
+                alongside it on the release. Download both into the same folder,
+                then check one against the other:
+            </p>
+            <pre><code>sha256sum --check wullie-@VERSION@-x86_64-unknown-linux-gnu.tar.gz.sha256</code></pre>
+            <p>
+                On macOS, use <code>shasum -a 256 --check</code> instead. On
+                Windows, compare the output of
+                <code>Get-FileHash wullie-@VERSION@-x86_64-pc-windows-msvc.tar.gz</code>
+                with the hash in the <code>.sha256</code> file.
+            </p>
+        </section>
+
+        <section>
+            <h2>Shell completions and the man page</h2>
+            <p>
+                The Debian package installs these for you. From a tarball, copy
+                the ones you want from its <code>completions</code> folder:
+            </p>
+            <table>
+                <thead>
+                    <tr>
+                        <th scope="col">Shell</th>
+                        <th scope="col">File</th>
+                        <th scope="col">Copy it to</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>bash</td>
+                        <td class="nowrap"><code>wullie.bash</code></td>
+                        <td><code>~/.local/share/bash-completion/completions/wullie</code></td>
+                    </tr>
+                    <tr>
+                        <td>zsh</td>
+                        <td class="nowrap"><code>_wullie</code></td>
+                        <td>any folder in your <code>$fpath</code></td>
+                    </tr>
+                    <tr>
+                        <td>fish</td>
+                        <td class="nowrap"><code>wullie.fish</code></td>
+                        <td><code>~/.config/fish/completions/wullie.fish</code></td>
+                    </tr>
+                    <tr>
+                        <td>Elvish</td>
+                        <td class="nowrap"><code>wullie.elv</code></td>
+                        <td>anywhere, then <code>eval</code> it from <code>rc.elv</code></td>
+                    </tr>
+                    <tr>
+                        <td>PowerShell</td>
+                        <td class="nowrap"><code>_wullie.ps1</code></td>
+                        <td>anywhere, then dot-source it from your <code>$PROFILE</code></td>
+                    </tr>
+                </tbody>
+            </table>
+            <p>To install the man page for just yourself:</p>
+            <pre><code>mkdir -p ~/.local/share/man/man1
+install -m 644 wullie-@VERSION@-x86_64-unknown-linux-gnu/wullie.1 ~/.local/share/man/man1/</code></pre>
+        </section>
+
+        <section>
+            <h2>Upgrading</h2>
+            <p>
+                Wullie doesn't update itself. To upgrade, install the new
+                release the same way you installed the old one: download and
+                <code>apt install</code> the new Debian package, run
+                <code>cargo binstall wullie</code> or
+                <code>cargo install wullie</code> again, or replace the binary
+                with the one from a new tarball.
+            </p>
+            <p>
+                <code>wullie --version</code> shows which version you have.
+            </p>
+        </section>
+    </main>
+
+    <footer>
+        <p>Copyright &copy; 2026 Mike Coats</p>
+        <p>
+            Wullie is free software: you can redistribute it and/or modify it
+            under the terms of the GNU General Public License as published by
+            the Free Software Foundation, either version 3 of the License, or
+            (at your option) any later version.
+        </p>
+        <p>
+            Wullie is distributed in the hope that it will be useful, but
+            WITHOUT ANY WARRANTY; without even the implied warranty of
+            MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+            <a href="https://www.gnu.org/licenses/gpl-3.0.html" target="_blank" rel="noopener">GNU General Public License</a>
+            for more details.
+        </p>
+        <ul>
+            <li><a href="https://github.com/MikeCoats/wullie" target="_blank" rel="noopener">Source</a></li>
+            <li><a href="https://github.com/MikeCoats/wullie/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">Contributing</a></li>
+            <li><a href="https://github.com/MikeCoats/wullie/blob/main/SECURITY.md" target="_blank" rel="noopener">Security</a></li>
+        </ul>
+    </footer>
+</body>
+</html>

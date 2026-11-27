@@ -3,7 +3,7 @@
 
 [package]
 name = "wullie"
-version = "0.5.6"
+version = "0.5.7"
 authors = ["Mike Coats <i.am@mikecoats.com>"]
 edition = "2024"
 rust-version = "1.100"
@@ -13,7 +13,7 @@ repository = "https://github.com/MikeCoats/wullie"
 license = "GPL-3.0-or-later"
 keywords = ["command-line", "task", "development", "utility"]
 categories = ["command-line-utilities", "development-tools"]
-include = ["/src/**", "/LICENSES/**", "/README.md", "/Cargo.lock"]
+include = ["/src/**", "/LICENSES/GPL-3.0-or-later.txt", "/README.md", "/Cargo.lock"]
 
 [package.metadata.binstall]
 pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ version }-{ target }{ archive-suffix }"
